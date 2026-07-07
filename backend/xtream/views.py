@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .services.client import XtreamClient
+from .normalizers import normalize_login, normalize_categories, normalize_channels
+from .errors import build_error_response
 
 
 @api_view(["POST"])
@@ -12,7 +14,11 @@ def xtream_login(request):
 
     if not username or not password:
         return Response(
-            {"detail": "Usuario y contraseña son obligatorios."},
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario y contraseña son obligatorios."
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -20,20 +26,28 @@ def xtream_login(request):
         client = XtreamClient()
         data = client.authenticate(username, password)
 
+        user = normalize_login(data)
+
+        # Xtream responde HTTP 200 con auth: 0 cuando las credenciales
+        # son incorrectas, por eso se valida aquí y no en el except.
+        if user["auth"] != 1:
+            return Response(
+                {
+                    "success": False,
+                    "error_code": "invalid_credentials",
+                    "message": "Usuario o contraseña incorrectos."
+                },
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
         return Response({
             "success": True,
-            "data": data
+            "user": user
         })
 
     except Exception as error:
-        return Response(
-            {
-                "success": False,
-                "detail": "No se pudo validar el usuario en Xtream.",
-                "error": str(error)
-            },
-            status=status.HTTP_502_BAD_GATEWAY
-        )
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
 
 
 @api_view(["POST"])
@@ -43,7 +57,11 @@ def live_categories(request):
 
     if not username or not password:
         return Response(
-            {"detail": "Usuario y contraseña son obligatorios."},
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario y contraseña son obligatorios."
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -53,18 +71,12 @@ def live_categories(request):
 
         return Response({
             "success": True,
-            "data": data
+            "categories": normalize_categories(data)
         })
 
     except Exception as error:
-        return Response(
-            {
-                "success": False,
-                "detail": "No se pudieron obtener las categorías.",
-                "error": str(error)
-            },
-            status=status.HTTP_502_BAD_GATEWAY
-        )
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
 
 
 @api_view(["POST"])
@@ -75,7 +87,11 @@ def live_streams(request):
 
     if not username or not password:
         return Response(
-            {"detail": "Usuario y contraseña son obligatorios."},
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario y contraseña son obligatorios."
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -85,18 +101,12 @@ def live_streams(request):
 
         return Response({
             "success": True,
-            "data": data
+            "channels": normalize_channels(data)
         })
 
     except Exception as error:
-        return Response(
-            {
-                "success": False,
-                "detail": "No se pudieron obtener los canales.",
-                "error": str(error)
-            },
-            status=status.HTTP_502_BAD_GATEWAY
-        )
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
     
 @api_view(["POST"])
 def live_stream_url(request):
@@ -107,7 +117,11 @@ def live_stream_url(request):
 
     if not username or not password or not stream_id:
         return Response(
-            {"detail": "Usuario, contraseña y stream_id son obligatorios."},
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario, contraseña y stream_id son obligatorios."
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -126,11 +140,5 @@ def live_stream_url(request):
         })
 
     except Exception as error:
-        return Response(
-            {
-                "success": False,
-                "detail": "No se pudo construir la URL de reproducción.",
-                "error": str(error)
-            },
-            status=status.HTTP_502_BAD_GATEWAY
-        )
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
