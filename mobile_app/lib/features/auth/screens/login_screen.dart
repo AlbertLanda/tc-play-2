@@ -21,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final AuthService _authService = AuthService();
 
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -89,16 +90,25 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Row(
         children: [
           Expanded(
-            flex: 5,
+            flex: 1,
             child: Container(
               color: AppColors.background,
               child: Center(
                 child: Container(
-                  width: 430,
+                  width: MediaQuery.of(context).size.width < 600
+                      ? MediaQuery.of(context).size.width * 0.9
+                      : 430,
                   padding: const EdgeInsets.all(32),
                   decoration: BoxDecoration(
                     color: AppColors.white,
                     borderRadius: BorderRadius.circular(24),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 20,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -148,7 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                       TextField(
                         controller: _passwordController,
-                        obscureText: true,
+                        obscureText: _obscurePassword,
                         style: const TextStyle(
                           color: AppColors.white,
                         ),
@@ -163,26 +173,35 @@ class _LoginScreenState extends State<LoginScreen> {
                             horizontal: 20,
                             vertical: 18,
                           ),
-                          suffixIcon: const Icon(
-                            Icons.visibility_off,
-                            color: AppColors.white,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                          color: AppColors.white,
                           ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: AppColors.orange,
-                              width: 4,
-                            ),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(
+                            color: AppColors.orange,
+                            width: 4,
                           ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: const BorderSide(
-                              color: AppColors.orange,
-                              width: 4,
-                            ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: const BorderSide(
+                            color: AppColors.orange,
+                            width: 4,
                           ),
                         ),
                       ),
+                  ),
                       const SizedBox(height: 26),
                       SizedBox(
                         width: double.infinity,
@@ -222,7 +241,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
           Expanded(
-            flex: 6,
+            flex: 1,
             child: Container(
               color: AppColors.background,
               child: const Center(
