@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../auth/screens/login_screen.dart';
 import '../../live_tv/screens/categories_screen.dart';
 import '../widgets/home_menu_card.dart';
 
@@ -9,6 +10,9 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final horizontalPadding = screenWidth < 500 ? 16.0 : 40.0;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -16,7 +20,10 @@ class HomeScreen extends StatelessWidget {
         centerTitle: true,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: 20,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -49,7 +56,6 @@ class HomeScreen extends StatelessWidget {
                 ],
               ),
             ),
-
             const SizedBox(height: 30),
 
             HomeMenuCard(
@@ -70,7 +76,7 @@ class HomeScreen extends StatelessWidget {
 
             HomeMenuCard(
               title: 'Categorías',
-              subtitle: 'Ver categorías disponibles.',
+              subtitle: 'Explora las categorías disponibles.',
               icon: Icons.category,
               onTap: () {
                 Navigator.push(
@@ -87,7 +93,7 @@ class HomeScreen extends StatelessWidget {
             HomeMenuCard(
               title: 'Mi cuenta',
               subtitle: 'Administrar información del usuario.',
-              icon: Icons.person,
+              icon: Icons.person_outline,
               onTap: () {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -101,10 +107,16 @@ class HomeScreen extends StatelessWidget {
 
             HomeMenuCard(
               title: 'Cerrar sesión',
-              subtitle: 'Volver a la pantalla de inicio.',
+              subtitle: 'Salir de la aplicación.',
               icon: Icons.logout,
               onTap: () {
-                Navigator.pop(context);
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const LoginScreen(),
+                  ),
+                  (route) => false,
+                );
               },
             ),
           ],

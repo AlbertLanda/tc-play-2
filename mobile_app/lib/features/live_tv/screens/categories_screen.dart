@@ -40,25 +40,43 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
           if (snapshot.hasError) {
             return const Center(
-              child: Text('Error al cargar las categorías'),
+              child: Text('Error al cargar categorías'),
             );
           }
 
           final categories = snapshot.data ?? [];
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: categories.length,
-            itemBuilder: (context, index) {
-              return Card(
-                color: AppColors.white,
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  leading: const Icon(Icons.live_tv),
-                  title: Text(categories[index]),
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  '${categories.length} categorías disponibles',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              );
-            },
+              ),
+
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: categories.length,
+                  itemBuilder: (context, index) {
+                    return Card(
+                      color: AppColors.white,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        leading: const Icon(Icons.live_tv),
+                        title: Text(categories[index]),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           );
         },
       ),
