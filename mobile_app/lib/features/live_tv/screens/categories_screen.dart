@@ -27,6 +27,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     Icons.public_rounded,
   ];
 
+
   @override
   void initState() {
     super.initState();
