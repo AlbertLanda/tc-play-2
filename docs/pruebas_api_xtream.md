@@ -193,4 +193,8 @@ categoría** (todos con `category_id: "1"`).
   los 5 `error_code` y la forma de las respuestas normalizadas.
 - Evaluar un **endpoint mock** que permita probar la API sin depender de la VPN/NOC.
 - Evaluar si el login debe considerarse válido solo cuando `auth == 1` **y**
-  `status == "Active"`.
+  `status == "Active"`. **Hallazgo:** hoy el login solo valida `auth == 1`; una
+  cuenta con `auth: 1` pero `status` distinto de `Active` (ej. `Expired`,
+  `Disabled`, `Banned`) **pasaría el login**. Se recomienda exigir también
+  `status == "Active"` (idealmente con un `error_code` propio tipo
+  `inactive_account`). Pendiente de decisión con el equipo; no implementado.

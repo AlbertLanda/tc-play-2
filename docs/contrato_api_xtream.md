@@ -176,3 +176,54 @@ http://127.0.0.1:8000
 Cuando `success` es `false`, la respuesta trae `error_code` y `message`. El detalle
 del contrato de errores y sus ejemplos está en
 [`respuestas_xtream.md`](respuestas_xtream.md).
+
+---
+
+## Notas para Flutter y Web
+
+Recomendaciones para consumir esta API desde las apps cliente:
+
+- **Siempre revisar `success` primero.** Si es `true`, usar los datos; si es `false`,
+  mostrar el mensaje según `error_code`.
+- **Decidir el mensaje por `error_code`, no por `message`.** El `error_code` es
+  estable; el texto de `message` puede cambiar. Ideal mapear cada código a un texto
+  propio localizado en la app.
+- **Todas las rutas terminan en `/`** y se consumen por **POST** con `Content-Type:
+  application/json`.
+- **Tipos de datos a tener en cuenta (importante para Dart/TypeScript):**
+  - `categories[].id` llega como **string** (`"1"`).
+  - `channels[].id` llega como **int** (`43`), y `channels[].category_id` como
+    **string**. Parsear con cuidado hasta que se unifique el tipo (ver pendientes).
+  - `exp_date` puede ser `null` o un **timestamp Unix en texto** (ej. `"1785474000"`).
+- **La `stream_url` contiene credenciales** en texto plano; no mostrarla ni loguearla
+  en el cliente. Úsala solo para inicializar el reproductor.
+- **Listas vacías no son error:** si `categories` o `channels` vienen como `[]`, es
+  porque la línea de cliente no tiene bouquets; la app debe manejar el caso "sin
+  contenido" sin tratarlo como fallo.
+- **Manejo de red:** ante `xtream_unavailable` o `connection_timeout`, sugerir
+  reintentar; suelen deberse a la VPN/NOC o a que Xtream no responde.
+
+---
+
+## Propuesta futura: endpoint mock sin VPN/NOC
+
+**Problema:** hoy todos los endpoints requieren **VPN/NOC activa** para alcanzar a
+Xtream. Esto complica el desarrollo de Flutter/Web y las pruebas automáticas cuando
+no se tiene acceso a la red interna.
+
+**Propuesta (no implementada aún):** ofrecer un **modo mock** del backend que
+devuelva respuestas normalizadas de ejemplo **sin llamar a Xtream**, para que los
+equipos de front puedan desarrollar y probar contra un contrato estable.
+
+Opciones a evaluar:
+
+- **Flag de entorno**, por ejemplo `XTREAM_MOCK=true` en el `.env`, que haga que las
+  vistas devuelvan datos de ejemplo fijos (mismos formatos de este contrato).
+- **Endpoints espejo** bajo un prefijo `/api/xtream/mock/...` con respuestas
+  quemadas, dejando los reales intactos.
+- **Fixtures JSON** reutilizables tanto por el modo mock como por los tests
+  automáticos.
+
+**Beneficios:** desarrollo de front sin VPN, pruebas reproducibles, demos sin
+depender de la infraestructura interna. **No** reemplaza la validación real contra
+Xtream, solo la complementa.
