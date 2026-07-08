@@ -4,10 +4,25 @@ class LiveTvService {
   // Consumir el endpoint real del backend cuando esté disponible.
   // GET /api/live-tv/current
   // GET /api/live-tv/channels
+  // GET /api/live-tv/categories
   // ============================================================
 
+  Future<List<String>> getCategories() async {
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    return const [
+      'Noticias',
+      'Deportes',
+      'Entretenimiento',
+      'Películas',
+      'Infantil',
+      'Música',
+      'Documentales',
+      'Internacional',
+    ];
+  }
+
   Future<Map<String, dynamic>> getLiveTvData() async {
-    // Simula la carga del servidor.
     await Future.delayed(const Duration(seconds: 2));
 
     return {
@@ -37,7 +52,7 @@ class LiveTvService {
           "number": "005",
           "name": "TC Infantil",
         },
-      ]
+      ],
     };
   }
 }

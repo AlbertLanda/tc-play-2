@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/screens/login_screen.dart';
 import '../../live_tv/screens/categories_screen.dart';
-import 'package:mobile_app/features/live_tv/screens/live_tv_screen.dart';
+import '../../live_tv/screens/live_tv_screen.dart';
 import '../../live_tv/services/live_tv_service.dart';
 import '../widgets/home_menu_card.dart';
 
@@ -24,11 +24,20 @@ class _HomeScreenState extends State<HomeScreen> {
     _categoriesFuture = _liveTvService.getCategories();
   }
 
+  void _goToLiveTv() {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => const LiveTvScreen(),
+    ),
+  );
+}
+
   void _goToCategories() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const LiveTvScreen(),
+        builder: (_) => const CategoriesScreen(),
       ),
     );
   }
@@ -129,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
         subtitle: 'Explora los canales disponibles.',
         icon: Icons.live_tv_rounded,
         iconColor: AppColors.neonGreen,
-        onTap: _goToCategories,
+        onTap: _goToLiveTv,
       ),
       HomeMenuCard(
         title: 'Categorías',
