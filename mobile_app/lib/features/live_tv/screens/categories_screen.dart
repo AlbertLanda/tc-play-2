@@ -15,7 +15,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   late Future<List<String>> _categories;
 
-  // Íconos decorativos asignados de forma cíclica a cada categoría.
+  // Íconos decorativos asignados a cada categoría.
   static const List<IconData> _categoryIcons = [
     Icons.newspaper_rounded,
     Icons.sports_soccer_rounded,

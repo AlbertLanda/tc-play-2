@@ -1,15 +1,9 @@
 class LiveTvService {
-  // ============================================================
-  // TODO:
-  // Consumir el endpoint real del backend cuando esté disponible.
-  // GET /api/live-tv/current
-  // GET /api/live-tv/channels
-  // GET /api/live-tv/categories
-  // ============================================================
-
   Future<List<String>> getCategories() async {
     await Future.delayed(const Duration(milliseconds: 600));
 
+//Categorías temporales, por el momento no hay un endpoint para obtenerlas desde el backend, 
+//por lo que se retornan de manera local.
     return const [
       'Noticias',
       'Deportes',
