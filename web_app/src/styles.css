@@ -449,3 +449,8 @@ input {
     min-height: 280px;
   }
 }
+
+.error-warning {
+  color: #b00020;
+  background: #ffe4e8;
+}

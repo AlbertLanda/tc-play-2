@@ -51,7 +51,7 @@ export async function getLiveChannels(username, password, categoryId) {
   return data.channels || [];
 }
 
-export async function getStreamUrl(username, password, streamId, output = 'ts') {
+export async function getStreamUrl(username, password, streamId, output = 'm3u8') {
   const response = await fetch(API_ENDPOINTS.streamUrl, {
     method: 'POST',
     headers: {
