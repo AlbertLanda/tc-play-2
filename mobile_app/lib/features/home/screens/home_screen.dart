@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/screens/login_screen.dart';
 import '../../live_tv/screens/categories_screen.dart';
+import 'package:mobile_app/features/live_tv/screens/live_tv_screen.dart';
 import '../../live_tv/services/live_tv_service.dart';
 import '../widgets/home_menu_card.dart';
 
@@ -26,7 +27,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _goToCategories() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const CategoriesScreen()),
+      MaterialPageRoute(
+        builder: (_) => const LiveTvScreen(),
+      ),
     );
   }
 
