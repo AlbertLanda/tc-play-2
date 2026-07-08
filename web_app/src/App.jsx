@@ -3,6 +3,7 @@ import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { ChannelsPage } from './pages/ChannelsPage';
+import { PlayerPage } from './pages/PlayerPage';
 import './styles.css';
 
 const ROUTES = {
@@ -10,12 +11,14 @@ const ROUTES = {
   home: 'home',
   categories: 'categories',
   channels: 'channels',
+  player: 'player',
 };
 
 function App() {
   const [route, setRoute] = useState(ROUTES.login);
   const [session, setSession] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedChannel, setSelectedChannel] = useState(null);
 
   function handleLoginSuccess(sessionData) {
     setSession(sessionData);
@@ -25,12 +28,29 @@ function App() {
   function handleLogout() {
     setSession(null);
     setSelectedCategory(null);
+    setSelectedChannel(null);
     setRoute(ROUTES.login);
   }
 
   function handleSelectCategory(category) {
     setSelectedCategory(category);
+    setSelectedChannel(null);
     setRoute(ROUTES.channels);
+  }
+
+  function handleSelectChannel(channel) {
+    setSelectedChannel(channel);
+    setRoute(ROUTES.player);
+  }
+
+  if (route === ROUTES.player && session && selectedChannel) {
+    return (
+      <PlayerPage
+        session={session}
+        channel={selectedChannel}
+        onBack={() => setRoute(ROUTES.channels)}
+      />
+    );
   }
 
   if (route === ROUTES.channels && session && selectedCategory) {
@@ -39,6 +59,7 @@ function App() {
         session={session}
         category={selectedCategory}
         onBack={() => setRoute(ROUTES.categories)}
+        onSelectChannel={handleSelectChannel}
       />
     );
   }

@@ -50,3 +50,30 @@ export async function getLiveChannels(username, password, categoryId) {
 
   return data.channels || [];
 }
+
+export async function getStreamUrl(username, password, streamId, output = 'ts') {
+  const response = await fetch(API_ENDPOINTS.streamUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      username,
+      password,
+      stream_id: streamId,
+      output,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || 'No se pudo obtener la URL de reproducción.');
+  }
+
+  if (data.success !== true) {
+    throw new Error(data.message || 'No se pudo obtener la URL de reproducción.');
+  }
+
+  return data.stream_url;
+}

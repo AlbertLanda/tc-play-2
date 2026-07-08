@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getLiveChannels } from '../api/liveTvApi';
 
-export function ChannelsPage({ session, category, onBack }) {
+export function ChannelsPage({ session, category, onBack, onSelectChannel }) {
   const [channels, setChannels] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -64,7 +64,12 @@ export function ChannelsPage({ session, category, onBack }) {
         {!isLoading && !errorMessage && channels.length > 0 && (
           <div className="channels-grid">
             {channels.map((channel) => (
-              <button type="button" className="channel-card" key={channel.id}>
+              <button
+                type="button"
+                className="channel-card"
+                key={channel.id}
+                onClick={() => onSelectChannel(channel)}
+              >
                 <div className="channel-logo">
                   {channel.icon ? (
                     <img src={channel.icon} alt={channel.name} />
