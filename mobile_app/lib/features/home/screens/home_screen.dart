@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/screens/login_screen.dart';
 import '../../live_tv/screens/categories_screen.dart';
-import '../../live_tv/screens/player_screen.dart';
 import '../../live_tv/services/live_tv_service.dart';
+import '../../live_tv/screens/player_screen.dart';
 import '../widgets/home_menu_card.dart';
+import '../widgets/welcome_banner.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final String username;
+
+  const HomeScreen({super.key, required this.username});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -18,27 +21,40 @@ class _HomeScreenState extends State<HomeScreen> {
   final LiveTvService _liveTvService = LiveTvService();
   late Future<List<String>> _categoriesFuture;
 
+  // 0 = Home (menú de opciones), 1 = Cuenta.
+  int _selectedIndex = 0;
+
   @override
   void initState() {
     super.initState();
     _categoriesFuture = _liveTvService.getCategories();
+
+    // Muestra la ventana flotante de bienvenida apenas se construye
+    // la pantalla (justo después del login) y se retira sola.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showWelcomeBanner());
   }
 
-  void _goToLiveTv() {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const PlayerScreen(),
-    ),
-  );
-}
+  void _showWelcomeBanner() {
+    final overlayState = Overlay.of(context);
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => WelcomeBanner(
+        message: 'BIENVENIDO ${widget.username.toUpperCase()} A TC PLAY 2.0',
+        onFinished: () => entry.remove(),
+      ),
+    );
+    overlayState.insert(entry);
+  }
 
+  // ---------------------------------------------------------------------
+  // Navegación: SIN CAMBIOS en la conexión con el backend, solo se
+  // reutiliza CategoriesScreen (que consume LiveTvService) como destino
+  // de "TV en vivo", "Canales" y "Categorías".
+  // ---------------------------------------------------------------------
   void _goToCategories() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const CategoriesScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const CategoriesScreen()),
     );
   }
 
@@ -50,7 +66,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
- 
   Widget _buildCategoryBadge() {
     return FutureBuilder<List<String>>(
       future: _categoriesFuture,
@@ -76,52 +91,246 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildWelcomeCard() {
+  // ---------------------------------------------------------------------
+  // Pestaña Home: al pulsar el ícono de casita se muestra este submenú
+  // con las 4 opciones solicitadas.
+  // ---------------------------------------------------------------------
+  Widget _buildHomeTab(bool isWide) {
+    final options = <Widget>[
+      HomeMenuCard(
+        title: 'TV en vivo',
+        subtitle: 'Mira la señal en vivo de tus canales favoritos.',
+        icon: Icons.live_tv_rounded,
+        iconColor: AppColors.orange,
+        onTap: _goToCategories,
+      ),
+      HomeMenuCard(
+        title: 'Canales',
+        subtitle: 'Explora todos los canales disponibles.',
+        icon: Icons.tv_rounded,
+        iconColor: Colors.purpleAccent,
+        // TODO(backend): reemplazar por ChannelsScreen cuando exista la
+        // pantalla dedicada a canales; por ahora reutiliza CategoriesScreen.
+        onTap: _goToCategories,
+      ),
+      HomeMenuCard(
+        title: 'Categorías',
+        subtitle: 'Elige entre todas las categorías disponibles.',
+        icon: Icons.category_rounded,
+        iconColor: AppColors.green,
+        onTap: _goToCategories,
+        trailingBadge: _buildCategoryBadge(),
+      ),
+      HomeMenuCard(
+        title: 'Mi cuenta',
+        subtitle: 'Administra tu información de usuario.',
+        icon: Icons.person_outline_rounded,
+        iconColor: Colors.blueAccent,
+        onTap: () => setState(() => _selectedIndex = 1),
+      ),
+    ];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Hola, ${widget.username}',
+            style: const TextStyle(
+              color: AppColors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '¿Qué quieres ver hoy?',
+            style: TextStyle(color: AppColors.white70),
+          ),
+          const SizedBox(height: 24),
+          isWide
+              ? GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  childAspectRatio: 3.2,
+                  children: options,
+                )
+              : Column(
+                  children: options
+                      .map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.only(bottom: 15),
+                          child: item,
+                        ),
+                      )
+                      .toList(),
+                ),
+        ],
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Pestaña Cuenta
+  // ---------------------------------------------------------------------
+  Widget _buildAccountTab() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Container(
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.25),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.person_rounded,
+                  color: Colors.blueAccent,
+                  size: 42,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                widget.username,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.title,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Cuenta de TC Play 2.0',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Función disponible próximamente'),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Editar información'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _logout,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    foregroundColor: AppColors.white,
+                  ),
+                  icon: const Icon(Icons.logout_rounded),
+                  label: const Text('Cerrar sesión'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Barra inferior de navegación por íconos: Home, Cuenta, Salir.
+  // ---------------------------------------------------------------------
+  Widget _buildNavItem({
+    required IconData icon,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final color = isSelected ? AppColors.orange : AppColors.white70;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 26),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight:
+                      isSelected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNav() {
     return Container(
-      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(22),
+        color: Color.lerp(AppColors.background, Colors.black, 0.3),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.4),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
-      child: Column(
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppColors.green.withValues(alpha: 0.12),
-              shape: BoxShape.circle,
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            _buildNavItem(
+              icon: Icons.home_rounded,
+              label: 'Home',
+              isSelected: _selectedIndex == 0,
+              onTap: () => setState(() => _selectedIndex = 0),
             ),
-            child: const Icon(
-              Icons.check_circle_rounded,
-              color: AppColors.green,
-              size: 44,
+            _buildNavItem(
+              icon: Icons.person_rounded,
+              label: 'Cuenta',
+              isSelected: _selectedIndex == 1,
+              onTap: () => setState(() => _selectedIndex = 1),
             ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            '¡Bienvenido a TC Play 2.0!',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: AppColors.title,
+            _buildNavItem(
+              icon: Icons.logout_rounded,
+              label: 'Salir',
+              isSelected: false,
+              onTap: _logout,
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Selecciona una opción para comenzar.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey.shade600),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -131,44 +340,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final width = MediaQuery.of(context).size.width;
     final isWide = width >= 700;
     final horizontalPadding = width < 500 ? 16.0 : (isWide ? 60.0 : 40.0);
-
-    final menuItems = <Widget>[
-      HomeMenuCard(
-        title: 'TV en vivo',
-        subtitle: 'Explora los canales disponibles.',
-        icon: Icons.live_tv_rounded,
-        iconColor: AppColors.neonGreen,
-        onTap: _goToLiveTv,
-      ),
-      HomeMenuCard(
-        title: 'Categorías',
-        subtitle: 'Explora las categorías disponibles.',
-        icon: Icons.category_rounded,
-        iconColor: AppColors.green,
-        onTap: _goToCategories,
-        trailingBadge: _buildCategoryBadge(),
-      ),
-      HomeMenuCard(
-        title: 'Mi cuenta',
-        subtitle: 'Administrar información del usuario.',
-        icon: Icons.person_outline_rounded,
-        iconColor: Colors.blueAccent,
-        onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Función disponible próximamente'),
-            ),
-          );
-        },
-      ),
-      HomeMenuCard(
-        title: 'Cerrar sesión',
-        subtitle: 'Salir de la aplicación.',
-        icon: Icons.logout_rounded,
-        iconColor: Colors.redAccent,
-        onTap: _logout,
-      ),
-    ];
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -194,42 +365,20 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.symmetric(
-              horizontal: horizontalPadding,
-              vertical: 24,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          bottom: false,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+            child: IndexedStack(
+              index: _selectedIndex,
               children: [
-                _buildWelcomeCard(),
-                const SizedBox(height: 28),
-                
-                isWide
-                    ? GridView.count(
-                        crossAxisCount: 2,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        mainAxisSpacing: 16,
-                        crossAxisSpacing: 16,
-                        childAspectRatio: 3.2,
-                        children: menuItems,
-                      )
-                    : Column(
-                        children: menuItems
-                            .map(
-                              (item) => Padding(
-                                padding: const EdgeInsets.only(bottom: 15),
-                                child: item,
-                              ),
-                            )
-                            .toList(),
-                      ),
+                _buildHomeTab(isWide),
+                _buildAccountTab(),
               ],
             ),
           ),
         ),
       ),
+      bottomNavigationBar: _buildBottomNav(),
     );
   }
 }

@@ -28,6 +28,8 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // ---------------------------------------------------------------------
+  // Lógica de negocio: SIN CAMBIOS respecto a la versión original.
+  // Se mantiene intacta la conexión con AuthService / API principal.
   // ---------------------------------------------------------------------
   Future<void> _login() async {
     final username = _usernameController.text.trim();
@@ -57,7 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (success) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          MaterialPageRoute(builder: (_) => HomeScreen(username: username)),
         );
       }
     } catch (e) {
@@ -78,6 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // ---------------------------------------------------------------------
+  // UI
   // ---------------------------------------------------------------------
 
   InputDecoration _fieldDecoration({
@@ -88,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(color: AppColors.white70),
-      prefixIcon: Icon(icon, color: AppColors.neonGreen),
+      prefixIcon: Icon(icon, color: AppColors.orange),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: AppColors.inputBackground,
@@ -98,11 +101,11 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: AppColors.neonGreen, width: 2),
+        borderSide: const BorderSide(color: AppColors.orange, width: 2),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: AppColors.neonGreen, width: 2.5),
+        borderSide: const BorderSide(color: AppColors.orange, width: 2.5),
       ),
     );
   }
@@ -116,7 +119,7 @@ class _LoginScreenState extends State<LoginScreen> {
         borderRadius: BorderRadius.circular(26),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
+            color: Colors.black.withOpacity(0.35),
             blurRadius: 28,
             offset: const Offset(0, 12),
           ),
@@ -129,12 +132,12 @@ class _LoginScreenState extends State<LoginScreen> {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: AppColors.neonGreen.withValues(alpha: 0.12),
+              color: AppColors.orange.withOpacity(0.12),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.live_tv_rounded,
-              color: AppColors.neonGreen,
+              color: AppColors.orange,
               size: 34,
             ),
           ),
@@ -233,12 +236,12 @@ class _LoginScreenState extends State<LoginScreen> {
             width: 96,
             height: 96,
             decoration: BoxDecoration(
-              color: AppColors.neonGreen.withValues(alpha: 0.15),
+              color: AppColors.orange.withOpacity(0.15),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.live_tv_rounded,
-              color: AppColors.neonGreen,
+              color: AppColors.orange,
               size: 52,
             ),
           ),
