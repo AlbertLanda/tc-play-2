@@ -32,8 +32,8 @@ class HomeMenuCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        splashColor: iconColor.withOpacity(0.15),
-        highlightColor: iconColor.withOpacity(0.08),
+        splashColor: iconColor.withValues(alpha: 0.15),
+        highlightColor: iconColor.withValues(alpha: 0.08),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
           child: Row(
@@ -42,7 +42,7 @@ class HomeMenuCard extends StatelessWidget {
                 width: 54,
                 height: 54,
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.12),
+                  color: iconColor.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(icon, size: 26, color: iconColor),

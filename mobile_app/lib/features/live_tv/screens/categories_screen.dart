@@ -200,7 +200,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 color: AppColors.neonGreen
-                                                    .withOpacity(0.15),
+                                                    .withValues(alpha: 0.15),
                                                 shape: BoxShape.circle,
                                               ),
                                               child: Icon(
