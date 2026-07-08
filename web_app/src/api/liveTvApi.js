@@ -24,3 +24,29 @@ export async function getLiveCategories(username, password) {
 
   return data.categories || [];
 }
+
+export async function getLiveChannels(username, password, categoryId) {
+  const response = await fetch(API_ENDPOINTS.liveStreams, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      username,
+      password,
+      category_id: categoryId,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || 'No se pudieron cargar los canales.');
+  }
+
+  if (data.success !== true) {
+    throw new Error(data.message || 'No se pudieron cargar los canales.');
+  }
+
+  return data.channels || [];
+}

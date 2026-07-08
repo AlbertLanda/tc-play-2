@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getLiveCategories } from '../api/liveTvApi';
 
-export function CategoriesPage({ session, onBack }) {
+export function CategoriesPage({ session, onBack, onSelectCategory }) {
   const [categories, setCategories] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -57,7 +57,12 @@ export function CategoriesPage({ session, onBack }) {
         {!isLoading && !errorMessage && categories.length > 0 && (
           <div className="categories-grid">
             {categories.map((category) => (
-              <button type="button" className="category-card" key={category.id}>
+              <button
+                type="button"
+                className="category-card"
+                key={category.id}
+                onClick={() => onSelectCategory(category)}
+              >
                 <span>📡</span>
                 <h3>{category.name}</h3>
                 <p>ID: {category.id}</p>

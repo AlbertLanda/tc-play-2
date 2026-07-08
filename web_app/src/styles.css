@@ -303,3 +303,66 @@ input {
     width: calc(100% - 32px);
   }
 }
+
+.channels-content {
+  min-height: calc(100vh - 72px);
+  padding: 48px;
+}
+
+.channels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 22px;
+}
+
+.channel-card {
+  border: none;
+  border-radius: 20px;
+  padding: 24px;
+  background: #ffffff;
+  color: #21183d;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  min-height: 130px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.channel-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 35px rgba(0, 0, 0, 0.25);
+}
+
+.channel-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: #f2f2f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.channel-logo img {
+  max-width: 54px;
+  max-height: 54px;
+  object-fit: contain;
+}
+
+.channel-logo span {
+  font-size: 36px;
+}
+
+.channel-card h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+.channel-card p {
+  margin: 3px 0;
+  color: #666666;
+  font-size: 14px;
+}
