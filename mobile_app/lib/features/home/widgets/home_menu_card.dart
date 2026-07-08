@@ -16,7 +16,7 @@ class HomeMenuCard extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     required this.onTap,
-    this.iconColor = AppColors.black,
+    this.iconColor = Color(0xFF55C900),
     this.trailingBadge,
   });
 
@@ -25,7 +25,7 @@ class HomeMenuCard extends StatelessWidget {
     return Card(
       color: AppColors.white,
       elevation: 6,
-      shadowColor: Colors.black45,
+      shadowColor: Color(0xFF55C900)45,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
       ),

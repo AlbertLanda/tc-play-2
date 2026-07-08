@@ -57,7 +57,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             end: Alignment.bottomCenter,
             colors: [
               AppColors.background,
-              Color.lerp(AppColors.background, Colors.black, 0.4) ??
+              Color.lerp(AppColors.background, Color(0xFF55C900), 0.4) ??
                   AppColors.background,
             ],
           ),
@@ -68,7 +68,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(color: AppColors.black),
+                  child: CircularProgressIndicator(color: Color(0xFF55C900)),
                 );
               }
 
@@ -88,7 +88,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                       ElevatedButton.icon(
                         onPressed: _refresh,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.black,
+                          backgroundColor: Color(0xFF55C900),
                           foregroundColor: AppColors.white,
                         ),
                         icon: const Icon(Icons.refresh_rounded),
@@ -105,7 +105,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
               return RefreshIndicator(
                 onRefresh: _refresh,
-                color: AppColors.black,
+                color: Color(0xFF55C900),
                 child: CustomScrollView(
                   slivers: [
                     // Contador visual de categorías disponibles.
@@ -172,7 +172,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                   return Card(
                                     color: AppColors.white,
                                     elevation: 5,
-                                    shadowColor: Colors.black38,
+                                    shadowColor: Color(0xFF55C900)38,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(16),
                                     ),
@@ -199,13 +199,13 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                               width: 44,
                                               height: 44,
                                               decoration: BoxDecoration(
-                                                color: AppColors.black
+                                                color: Color(0xFF55C900)
                                                     .withOpacity(0.15),
                                                 shape: BoxShape.circle,
                                               ),
                                               child: Icon(
                                                 icon,
-                                                color: AppColors.black,
+                                                color: Color(0xFF55C900),
                                                 size: 22,
                                               ),
                                             ),
