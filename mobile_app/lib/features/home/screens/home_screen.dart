@@ -38,8 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Contador visual de categorías disponibles, mostrado como badge
-  // sobre la tarjeta "Categorías".
+ 
   Widget _buildCategoryBadge() {
     return FutureBuilder<List<String>>(
       future: _categoriesFuture,
@@ -126,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: 'TV en vivo',
         subtitle: 'Explora los canales disponibles.',
         icon: Icons.live_tv_rounded,
-        iconColor: AppColors.black,
+        iconColor: AppColors.neonGreen,
         onTap: _goToCategories,
       ),
       HomeMenuCard(

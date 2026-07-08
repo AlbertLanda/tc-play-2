@@ -28,7 +28,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // ---------------------------------------------------------------------
-  // Lógica de autenticación
   // ---------------------------------------------------------------------
   Future<void> _login() async {
     final username = _usernameController.text.trim();
@@ -79,7 +78,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // ---------------------------------------------------------------------
-  // UI
   // ---------------------------------------------------------------------
 
   InputDecoration _fieldDecoration({
@@ -90,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(color: AppColors.white70),
-      prefixIcon: Icon(icon, color: Color(0xFF55C900)),
+      prefixIcon: Icon(icon, color: AppColors.neonGreen),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: AppColors.inputBackground,
@@ -100,11 +98,11 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0xFF55C900), width: 2),
+        borderSide: const BorderSide(color: AppColors.neonGreen, width: 2),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Color(0xFF55C900), width: 2.5),
+        borderSide: const BorderSide(color: AppColors.neonGreen, width: 2.5),
       ),
     );
   }
@@ -118,7 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
         borderRadius: BorderRadius.circular(26),
         boxShadow: [
           BoxShadow(
-            color: Color(0xFF55C900).withOpacity(0.35),
+            color: Colors.black.withOpacity(0.35),
             blurRadius: 28,
             offset: const Offset(0, 12),
           ),
@@ -131,12 +129,12 @@ class _LoginScreenState extends State<LoginScreen> {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: Color(0xFF55C900).withOpacity(0.12),
+              color: AppColors.neonGreen.withOpacity(0.12),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.live_tv_rounded,
-              color: Color(0xFF55C900),
+              color: AppColors.neonGreen,
               size: 34,
             ),
           ),
@@ -235,12 +233,12 @@ class _LoginScreenState extends State<LoginScreen> {
             width: 96,
             height: 96,
             decoration: BoxDecoration(
-              color: Color(0xFF55C900).withOpacity(0.15),
+              color: AppColors.neonGreen.withOpacity(0.15),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.live_tv_rounded,
-              color: Color(0xFF55C900),
+              color: AppColors.neonGreen,
               size: 52,
             ),
           ),
@@ -278,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
             end: Alignment.bottomRight,
             colors: [
               AppColors.background,
-              Color.lerp(AppColors.background, Color(0xFF55C900), 0.5) ??
+              Color.lerp(AppColors.background, Colors.black, 0.5) ??
                   AppColors.background,
             ],
           ),

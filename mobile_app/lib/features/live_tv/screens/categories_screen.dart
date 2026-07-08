@@ -15,7 +15,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   late Future<List<String>> _categories;
 
-  // Íconos
+  // Íconos decorativos asignados de forma cíclica a cada categoría.
   static const List<IconData> _categoryIcons = [
     Icons.newspaper_rounded,
     Icons.sports_soccer_rounded,
@@ -57,7 +57,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             end: Alignment.bottomCenter,
             colors: [
               AppColors.background,
-              Color.lerp(AppColors.background, Color(0xFF55C900), 0.4) ??
+              Color.lerp(AppColors.background, Colors.black, 0.4) ??
                   AppColors.background,
             ],
           ),
@@ -68,7 +68,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(color: Color(0xFF55C900)),
+                  child: CircularProgressIndicator(color: AppColors.neonGreen),
                 );
               }
 
@@ -88,7 +88,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                       ElevatedButton.icon(
                         onPressed: _refresh,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Color(0xFF55C900),
+                          backgroundColor: AppColors.neonGreen,
                           foregroundColor: AppColors.white,
                         ),
                         icon: const Icon(Icons.refresh_rounded),
@@ -105,7 +105,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
               return RefreshIndicator(
                 onRefresh: _refresh,
-                color: Color(0xFF55C900),
+                color: AppColors.neonGreen,
                 child: CustomScrollView(
                   slivers: [
                     // Contador visual de categorías disponibles.
@@ -172,7 +172,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                   return Card(
                                     color: AppColors.white,
                                     elevation: 5,
-                                    shadowColor: Color(0xFF55C900)38,
+                                    shadowColor: Colors.black38,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(16),
                                     ),
@@ -199,13 +199,13 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                               width: 44,
                                               height: 44,
                                               decoration: BoxDecoration(
-                                                color: Color(0xFF55C900)
+                                                color: AppColors.neonGreen
                                                     .withOpacity(0.15),
                                                 shape: BoxShape.circle,
                                               ),
                                               child: Icon(
                                                 icon,
-                                                color: Color(0xFF55C900),
+                                                color: AppColors.neonGreen,
                                                 size: 22,
                                               ),
                                             ),
