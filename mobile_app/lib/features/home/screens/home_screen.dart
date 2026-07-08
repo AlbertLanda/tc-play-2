@@ -126,7 +126,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: 'TV en vivo',
         subtitle: 'Explora los canales disponibles.',
         icon: Icons.live_tv_rounded,
-        iconColor: AppColors.orange,
+        iconColor: AppColors.black,
         onTap: _goToCategories,
       ),
       HomeMenuCard(

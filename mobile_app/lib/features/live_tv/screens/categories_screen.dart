@@ -15,7 +15,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   late Future<List<String>> _categories;
 
-  // Íconos decorativos asignados de forma cíclica a cada categoría.
+  // Íconos
   static const List<IconData> _categoryIcons = [
     Icons.newspaper_rounded,
     Icons.sports_soccer_rounded,
@@ -68,7 +68,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(color: AppColors.orange),
+                  child: CircularProgressIndicator(color: AppColors.black),
                 );
               }
 
@@ -88,7 +88,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                       ElevatedButton.icon(
                         onPressed: _refresh,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.orange,
+                          backgroundColor: AppColors.black,
                           foregroundColor: AppColors.white,
                         ),
                         icon: const Icon(Icons.refresh_rounded),
@@ -105,7 +105,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
               return RefreshIndicator(
                 onRefresh: _refresh,
-                color: AppColors.orange,
+                color: AppColors.black,
                 child: CustomScrollView(
                   slivers: [
                     // Contador visual de categorías disponibles.
@@ -199,13 +199,13 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                               width: 44,
                                               height: 44,
                                               decoration: BoxDecoration(
-                                                color: AppColors.orange
+                                                color: AppColors.black
                                                     .withOpacity(0.15),
                                                 shape: BoxShape.circle,
                                               ),
                                               child: Icon(
                                                 icon,
-                                                color: AppColors.orange,
+                                                color: AppColors.black,
                                                 size: 22,
                                               ),
                                             ),
