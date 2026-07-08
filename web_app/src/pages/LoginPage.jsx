@@ -19,9 +19,13 @@ export function LoginPage({ onLoginSuccess }) {
       setIsLoading(true);
       setErrorMessage('');
 
-      await loginRequest(username.trim(), password);
+      const data = await loginRequest(username.trim(), password);
 
-      onLoginSuccess();
+      onLoginSuccess({
+        username: username.trim(),
+        password,
+        user: data.user,
+      });
     } catch (error) {
       setErrorMessage(error.message || 'No fue posible conectar con el servidor.');
     } finally {
