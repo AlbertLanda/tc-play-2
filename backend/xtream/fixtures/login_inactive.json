@@ -1,0 +1,15 @@
+{
+  "user_info": {
+    "username": "cliente.demo",
+    "password": "no-debe-filtrarse",
+    "auth": 1,
+    "status": "Disabled",
+    "max_connections": "1",
+    "active_cons": "0",
+    "exp_date": "1735689600"
+  },
+  "server_info": {
+    "url": "servidor-interno-no-debe-filtrarse",
+    "port": "8080"
+  }
+}

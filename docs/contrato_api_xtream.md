@@ -3,7 +3,7 @@
 - **Rama:** `feature/backend-normalizar-xtream`
 - **Fecha:** 07/07/2026
 - **Responsable:** Kevin
-- **Estado:** respuestas normalizadas (Día 2)
+- **Estado:** respuestas normalizadas + validación de cuenta activa en login (Día 4)
 
 Este documento define el **contrato** entre el backend Django y la app Flutter:
 qué se envía (request) y qué se recibe (response) en cada endpoint, ya con las
@@ -69,6 +69,27 @@ http://127.0.0.1:8000
 | `exp_date` | string \| null | Vencimiento (timestamp Unix en texto) o `null`. |
 
 > No se envía `password`, `server_info` ni datos internos del servidor.
+
+### Regla de login válido (`auth` + `status`)
+
+El login **solo** se considera exitoso cuando se cumplen **ambas** condiciones:
+
+- `auth == 1` → las credenciales son correctas.
+- `status == "Active"` → la cuenta está vigente.
+
+Si una de las dos falla, el login **no** entrega el usuario y responde un error:
+
+| Caso | HTTP | Respuesta |
+|------|------|-----------|
+| Usuario correcto y activo | 200 | `success: true` + `user` normalizado |
+| Usuario o contraseña incorrectos (`auth != 1`) | 401 | `success: false`, `error_code: invalid_credentials` |
+| Autenticado pero cuenta no activa (`auth == 1`, `status != "Active"`) | 403 | `success: false`, `error_code: inactive_account` |
+| Body vacío / faltan credenciales | 400 | `success: false`, `error_code: missing_credentials` |
+
+> **Para Flutter/Web:** distinguir `invalid_credentials` (credenciales mal) de
+> `inactive_account` (credenciales bien, pero cuenta vencida/deshabilitada). El
+> segundo debería invitar a **renovar el plan**, no a corregir la contraseña. El
+> detalle de todos los errores está en [`errores_xtream.md`](errores_xtream.md).
 
 ---
 
@@ -202,6 +223,29 @@ Recomendaciones para consumir esta API desde las apps cliente:
   contenido" sin tratarlo como fallo.
 - **Manejo de red:** ante `xtream_unavailable` o `connection_timeout`, sugerir
   reintentar; suelen deberse a la VPN/NOC o a que Xtream no responde.
+
+---
+
+## Propuesta: convención única para los IDs
+
+**Problema:** hoy los identificadores no tienen un tipo uniforme:
+
+- `categories[].id` → **string** (`"1"`).
+- `channels[].id` → **int** (`43`), pero `channels[].category_id` → **string** (`"1"`).
+
+Esto obliga a Flutter/Web a parsear con cuidado y es fuente de errores sutiles
+(comparaciones que fallan por tipo, `int` vs `String` en Dart, etc.).
+
+**Propuesta (recomendada): unificar todos los IDs como `string`.** Razones:
+
+- Es el formato **nativo** con el que Xtream devuelve los IDs, así que se evita
+  convertir de ida y vuelta.
+- Un ID es un **identificador**, no un número para operar; no se suma ni se resta.
+- Elimina ambigüedad: la app siempre trata `id` y `category_id` igual.
+
+**Impacto:** cambiar `channels[].id` de `int` a `string` en `normalize_channels`.
+Es un cambio de contrato, por lo que debe **coordinarse con Flutter/Web** antes de
+aplicarlo. Pendiente de decisión con el equipo; no implementado aún.
 
 ---
 
