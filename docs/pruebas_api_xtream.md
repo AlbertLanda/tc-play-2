@@ -23,13 +23,14 @@
 
 | # | Endpoint | Caso de prueba | HTTP | Resultado | Observación |
 |---|----------|----------------|------|-----------|-------------|
-| 1 | `POST /api/xtream/login/` | Usuario correcto | 200 | `success: true` + `user` normalizado | No expone `password` ni `server_info`. |
+| 1 | `POST /api/xtream/login/` | Usuario correcto y activo | 200 | `success: true` + `user` normalizado | No expone `password` ni `server_info`. |
 | 2 | `POST /api/xtream/login/` | Body vacío | 400 | `missing_credentials` | Validación previa a llamar a Xtream. |
 | 3 | `POST /api/xtream/login/` | Credenciales incorrectas | 401 | `invalid_credentials` | Este panel devuelve 404; el backend lo mapea a `invalid_credentials`. |
-| 4 | `POST /api/xtream/live/categories/` | Usuario correcto | 200 | `categories` con `id` y `name` | Vacío si la línea no tiene bouquets. |
-| 5 | `POST /api/xtream/live/streams/` | Sin `category_id` | 200 | `channels` normalizados | Devuelve `id`, `name`, `category_id`, `icon`, `stream_type`. |
-| 6 | `POST /api/xtream/live/streams/` | Con `category_id` | 200 | `channels` filtrados por categoría | Filtro aplicado correctamente. |
-| 7 | `POST /api/xtream/live/stream-url/` | `stream_id` válido | 200 | `stream_url` generado | La URL contiene credenciales (ver observaciones). |
+| 4 | `POST /api/xtream/login/` | Cuenta autenticada pero no activa | 403 | `inactive_account` | `auth == 1` pero `status != "Active"` (cuenta vencida/deshabilitada). |
+| 5 | `POST /api/xtream/live/categories/` | Usuario correcto | 200 | `categories` con `id` y `name` | Vacío si la línea no tiene bouquets. |
+| 6 | `POST /api/xtream/live/streams/` | Sin `category_id` | 200 | `channels` normalizados | Devuelve `id`, `name`, `category_id`, `icon`, `stream_type`. |
+| 7 | `POST /api/xtream/live/streams/` | Con `category_id` | 200 | `channels` filtrados por categoría | Filtro aplicado correctamente. |
+| 8 | `POST /api/xtream/live/stream-url/` | `stream_id` válido | 200 | `stream_url` generado | La URL contiene credenciales (ver observaciones). |
 
 ---
 
@@ -189,12 +190,11 @@ categoría** (todos con `category_id: "1"`).
 
 - Unificar el **tipo del campo `id`**: hoy es `string` en categorías y `int` en
   canales; conviene una convención única para Flutter/Web.
-- Agregar **tests automáticos** (`xtream/tests.py`) que mockeen a Xtream y validen
-  los 5 `error_code` y la forma de las respuestas normalizadas.
+- ✅ **Resuelto (Día 4):** se agregaron **tests automáticos** en `xtream/tests.py`
+  que mockean a Xtream (sin VPN/NOC) y validan login activo, `invalid_credentials`,
+  `inactive_account`, `missing_credentials` y que la respuesta exitosa no exponga
+  `password` ni `server_info`.
 - Evaluar un **endpoint mock** que permita probar la API sin depender de la VPN/NOC.
-- Evaluar si el login debe considerarse válido solo cuando `auth == 1` **y**
-  `status == "Active"`. **Hallazgo:** hoy el login solo valida `auth == 1`; una
-  cuenta con `auth: 1` pero `status` distinto de `Active` (ej. `Expired`,
-  `Disabled`, `Banned`) **pasaría el login**. Se recomienda exigir también
-  `status == "Active"` (idealmente con un `error_code` propio tipo
-  `inactive_account`). Pendiente de decisión con el equipo; no implementado.
+- ✅ **Resuelto (Día 4):** el login ahora exige `auth == 1` **y** `status == "Active"`.
+  Una cuenta con `auth: 1` pero `status` distinto de `Active` (ej. `Expired`,
+  `Disabled`, `Banned`) ya **no pasa** el login: responde `inactive_account` (403).

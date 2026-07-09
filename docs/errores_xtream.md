@@ -32,6 +32,7 @@ Cuando `success` es `false`, la respuesta siempre trae `error_code` y `message`:
 |------|--------------|------|---------|
 | Faltan usuario o contraseña | `missing_credentials` | 400 | Usuario y contraseña son obligatorios. |
 | Credenciales inválidas | `invalid_credentials` | 401 | Usuario o contraseña incorrectos. |
+| Cuenta no activa (vencida / deshabilitada / baneada) | `inactive_account` | 403 | La cuenta no se encuentra activa. |
 | Xtream no responde | `xtream_unavailable` | 502 | No se pudo conectar con el servicio de TV. |
 | Tiempo de espera agotado | `connection_timeout` | 504 | Tiempo de espera agotado al conectar con Xtream. |
 | Error no esperado | `unexpected_error` | 500 | Ocurrió un error inesperado. |
@@ -60,7 +61,20 @@ Cuando `success` es `false`, la respuesta siempre trae `error_code` y `message`:
 }
 ```
 
-### 3. Servicio de TV caído / VPN inactiva — HTTP 502
+### 3. Cuenta autenticada pero no activa — HTTP 403
+
+Las credenciales son correctas (`auth == 1`), pero la cuenta **no está activa**
+(vencida, deshabilitada o baneada), por lo que **no** se permite el acceso.
+
+```json
+{
+  "success": false,
+  "error_code": "inactive_account",
+  "message": "La cuenta no se encuentra activa."
+}
+```
+
+### 4. Servicio de TV caído / VPN inactiva — HTTP 502
 
 ```json
 {
@@ -70,7 +84,7 @@ Cuando `success` es `false`, la respuesta siempre trae `error_code` y `message`:
 }
 ```
 
-### 4. Tiempo de espera agotado — HTTP 504
+### 5. Tiempo de espera agotado — HTTP 504
 
 ```json
 {
@@ -80,7 +94,7 @@ Cuando `success` es `false`, la respuesta siempre trae `error_code` y `message`:
 }
 ```
 
-### 5. Error inesperado — HTTP 500
+### 6. Error inesperado — HTTP 500
 
 ```json
 {
@@ -97,3 +111,18 @@ Cuando `success` es `false`, la respuesta siempre trae `error_code` y `message`:
 Algunos paneles Xtream devuelven **HTTP 200 con `auth: 0`** ante credenciales
 incorrectas; otros devuelven **HTTP 404**. En ambos casos el backend responde
 `invalid_credentials`, para que la app maneje un único código.
+
+## Nota sobre cuenta no activa (`inactive_account`)
+
+El login solo es válido cuando se cumplen **ambas** condiciones:
+
+- `auth == 1` (las credenciales son correctas), **y**
+- `status == "Active"` (la cuenta está vigente).
+
+Diferencia importante para la app:
+
+- Si `auth != 1` → `invalid_credentials` (401): el usuario o la contraseña están mal.
+- Si `auth == 1` pero `status != "Active"` → `inactive_account` (403): las credenciales
+  son correctas, pero la cuenta está vencida, deshabilitada o baneada. La app debería
+  mostrar un mensaje del tipo *"tu cuenta no está activa, renueva tu plan"*, distinto
+  al de credenciales incorrectas.

@@ -13,7 +13,11 @@ class AppColors {
 
   static const Color title = Color(0xFF180052);
 
+  static const Color neonGreen = Color(0xFF35FF00);
+
   static const Color white = Colors.white;
 
   static const Color white70 = Colors.white70;
+
+  static const Color black = Colors.black;
 }

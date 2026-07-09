@@ -40,6 +40,19 @@ def xtream_login(request):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
+        # La línea autenticó (auth == 1) pero solo puede ingresar si la
+        # cuenta está activa. Si status no es "Active" (vencida, deshabilitada,
+        # baneada, etc.) se bloquea el acceso con inactive_account.
+        if not user["is_active"]:
+            return Response(
+                {
+                    "success": False,
+                    "error_code": "inactive_account",
+                    "message": "La cuenta no se encuentra activa."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         return Response({
             "success": True,
             "user": user
