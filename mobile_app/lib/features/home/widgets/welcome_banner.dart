@@ -82,7 +82,7 @@ class _WelcomeBannerState extends State<WelcomeBanner> {
                     borderRadius: BorderRadius.circular(18),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.35),
+                        color: Colors.black.withValues(alpha: 0.35),
                         blurRadius: 22,
                         offset: const Offset(0, 10),
                       ),
@@ -95,7 +95,7 @@ class _WelcomeBannerState extends State<WelcomeBanner> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: AppColors.green.withOpacity(0.15),
+                          color: AppColors.green.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(

@@ -4,14 +4,19 @@ import '../../../core/constants/app_colors.dart';
 import '../../auth/screens/login_screen.dart';
 import '../../live_tv/screens/categories_screen.dart';
 import '../../live_tv/services/live_tv_service.dart';
-import '../../live_tv/screens/player_screen.dart';
+import '../../live_tv/models/live_category.dart';
 import '../widgets/home_menu_card.dart';
 import '../widgets/welcome_banner.dart';
 
 class HomeScreen extends StatefulWidget {
   final String username;
+  final String password;
 
-  const HomeScreen({super.key, required this.username});
+  const HomeScreen({
+    super.key,
+    required this.username,
+    required this.password,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -19,7 +24,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final LiveTvService _liveTvService = LiveTvService();
-  late Future<List<String>> _categoriesFuture;
+  late Future<List<LiveCategory>> _categoriesFuture;
 
   // 0 = Home (menú de opciones), 1 = Cuenta.
   int _selectedIndex = 0;
@@ -27,7 +32,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _categoriesFuture = _liveTvService.getCategories();
+    _categoriesFuture = _liveTvService.getCategories(
+      username: widget.username,
+      password: widget.password,
+    );
 
     // Muestra la ventana flotante de bienvenida apenas se construye
     // la pantalla (justo después del login) y se retira sola.
@@ -54,7 +62,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _goToCategories() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const CategoriesScreen()),
+      MaterialPageRoute(
+        builder: (_) => CategoriesScreen(
+          username: widget.username,
+          password: widget.password,
+        ),
+      ),
     );
   }
 
@@ -67,7 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildCategoryBadge() {
-    return FutureBuilder<List<String>>(
+    return FutureBuilder<List<LiveCategory>>(
       future: _categoriesFuture,
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox.shrink();
@@ -188,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
             borderRadius: BorderRadius.circular(22),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.25),
+                color: Colors.black.withValues(alpha: 0.25),
                 blurRadius: 18,
                 offset: const Offset(0, 8),
               ),
@@ -201,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: 76,
                 height: 76,
                 decoration: BoxDecoration(
-                  color: Colors.blueAccent.withOpacity(0.12),
+                  color: Colors.blueAccent.withValues(alpha: 0.12),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -301,7 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
         color: Color.lerp(AppColors.background, Colors.black, 0.3),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.4),
+            color: Colors.black.withValues(alpha: 0.4),
             blurRadius: 12,
             offset: const Offset(0, -4),
           ),

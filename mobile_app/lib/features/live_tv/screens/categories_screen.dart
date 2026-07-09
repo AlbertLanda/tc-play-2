@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
-
+import '../models/live_category.dart';
 import '../../../core/constants/app_colors.dart';
 import '../services/live_tv_service.dart';
 
 class CategoriesScreen extends StatefulWidget {
-  const CategoriesScreen({super.key});
+  final String username;
+  final String password;
+
+  const CategoriesScreen({
+    super.key,
+    required this.username,
+    required this.password,
+  });
 
   @override
   State<CategoriesScreen> createState() => _CategoriesScreenState();
@@ -13,7 +20,7 @@ class CategoriesScreen extends StatefulWidget {
 class _CategoriesScreenState extends State<CategoriesScreen> {
   final LiveTvService _service = LiveTvService();
 
-  late Future<List<String>> _categories;
+  late Future<List<LiveCategory>> _categories;
 
   // Íconos decorativos asignados de forma cíclica a cada categoría.
   static const List<IconData> _categoryIcons = [
@@ -27,16 +34,21 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     Icons.public_rounded,
   ];
 
-
   @override
   void initState() {
     super.initState();
-    _categories = _service.getCategories();
+    _categories = _service.getCategories(
+      username: widget.username,
+      password: widget.password,
+    );
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _categories = _service.getCategories();
+      _categories = _service.getCategories(
+        username: widget.username,
+        password: widget.password,
+      );
     });
     await _categories;
   }
@@ -64,7 +76,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           ),
         ),
         child: SafeArea(
-          child: FutureBuilder<List<String>>(
+          child: FutureBuilder<List<LiveCategory>>(
             future: _categories,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -100,7 +112,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                 );
               }
 
-              final categories = snapshot.data ?? [];
+              final categories = snapshot.data ?? <LiveCategory>[];
               final width = MediaQuery.of(context).size.width;
               final crossAxisCount = width >= 900 ? 3 : (width >= 600 ? 2 : 1);
 
@@ -184,7 +196,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                             .showSnackBar(
                                           SnackBar(
                                             content: Text(
-                                              'Abriendo ${categories[index]}...',
+                                              'Abriendo ${categories[index].name}...',
                                             ),
                                           ),
                                         );
@@ -201,7 +213,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 color: AppColors.orange
-                                                    .withOpacity(0.15),
+                                                    .withValues(alpha: 0.15),
                                                 shape: BoxShape.circle,
                                               ),
                                               child: Icon(
@@ -213,15 +225,15 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                             const SizedBox(width: 12),
                                             Expanded(
                                               child: Text(
-                                                categories[index],
+                                                '${categories[index].id} - ${categories[index].name}',
                                                 style: const TextStyle(
                                                   color: AppColors.title,
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 15,
+                                                  ),
+                                                  overflow: TextOverflow.ellipsis,
                                                 ),
-                                                overflow: TextOverflow.ellipsis,
                                               ),
-                                            ),
                                           ],
                                         ),
                                       ),

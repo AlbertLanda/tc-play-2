@@ -11,14 +11,24 @@ class LiveTvService {
     required String password,
   }) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/xtream/live/categories/'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'username': username,
-        'password': password,
-      }),
-    );
+    Uri.parse('$_baseUrl/api/xtream/live/categories/'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({
+      'username': username,
+      'password': password,
+    }),
+  );
+
+  if (response.statusCode == 200) {
+    final List<dynamic> data = jsonDecode(response.body);
+
+    return data
+        .map((item) => LiveCategory.fromJson(item))
+        .toList();
   }
+
+  throw Exception('No se pudieron obtener las categorías');
+}
 
   Future<Map<String, dynamic>> getLiveTvData() async {
     await Future.delayed(const Duration(seconds: 2));
