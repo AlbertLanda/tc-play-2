@@ -5,10 +5,19 @@ import '../../auth/screens/login_screen.dart';
 import '../../live_tv/screens/categories_screen.dart';
 import '../../live_tv/screens/player_screen.dart';
 import '../../live_tv/services/live_tv_service.dart';
+import '../../live_tv/models/live_category.dart';
 import '../widgets/home_menu_card.dart';
 
+
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    required this.username,
+    required this.password,
+  });
+
+  final String username;
+  final String password;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -16,12 +25,15 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final LiveTvService _liveTvService = LiveTvService();
-  late Future<List<String>> _categoriesFuture;
+  late Future<List<LiveCategory>> _categoriesFuture;
 
   @override
   void initState() {
     super.initState();
-    _categoriesFuture = _liveTvService.getCategories();
+    _categoriesFuture = _liveTvService.getCategories(
+      username: widget.username,
+      password: widget.password,
+    );
   }
 
   void _goToLiveTv() {
@@ -37,7 +49,10 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const CategoriesScreen(),
+        builder: (_) => CategoriesScreen(
+          username: widget.username,
+          password: widget.password,
+        ),
       ),
     );
   }
@@ -52,7 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
  
   Widget _buildCategoryBadge() {
-    return FutureBuilder<List<String>>(
+    return FutureBuilder<List<LiveCategory>>(
       future: _categoriesFuture,
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox.shrink();

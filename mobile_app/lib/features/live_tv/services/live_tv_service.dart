@@ -1,19 +1,42 @@
-class LiveTvService {
-  Future<List<String>> getCategories() async {
-    await Future.delayed(const Duration(milliseconds: 600));
+import 'dart:convert';
 
-//Categorías temporales, por el momento no hay un endpoint para obtenerlas desde el backend, 
-//por lo que se retornan de manera local.
-    return const [
-      'Noticias',
-      'Deportes',
-      'Entretenimiento',
-      'Películas',
-      'Infantil',
-      'Música',
-      'Documentales',
-      'Internacional',
-    ];
+import 'package:http/http.dart' as http;
+
+import '../models/live_category.dart';
+
+class LiveTvService {
+  static const String _baseUrl = 'http://127.0.0.1:8000';
+
+  Future<List<LiveCategory>> getCategories({
+    required String username,
+    required String password,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/api/xtream/live/categories/'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'username': username,
+        'password': password,
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(
+        data['message'] ?? 'No se pudieron cargar las categorías.',
+      );
+    }
+
+    final categories = data['categories'] as List<dynamic>? ?? [];
+
+    return categories
+        .map(
+          (item) => LiveCategory.fromJson(item as Map<String, dynamic>),
+        )
+        .toList();
   }
 
   Future<Map<String, dynamic>> getLiveTvData() async {
