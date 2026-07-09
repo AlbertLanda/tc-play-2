@@ -3,7 +3,7 @@
 - **Rama:** `feature/backend-normalizar-xtream`
 - **Fecha:** 07/07/2026
 - **Responsable:** Kevin
-- **Estado:** respuestas normalizadas (Día 2)
+- **Estado:** respuestas normalizadas + validación de cuenta activa en login (Día 4)
 
 Este documento define el **contrato** entre el backend Django y la app Flutter:
 qué se envía (request) y qué se recibe (response) en cada endpoint, ya con las
@@ -69,6 +69,27 @@ http://127.0.0.1:8000
 | `exp_date` | string \| null | Vencimiento (timestamp Unix en texto) o `null`. |
 
 > No se envía `password`, `server_info` ni datos internos del servidor.
+
+### Regla de login válido (`auth` + `status`)
+
+El login **solo** se considera exitoso cuando se cumplen **ambas** condiciones:
+
+- `auth == 1` → las credenciales son correctas.
+- `status == "Active"` → la cuenta está vigente.
+
+Si una de las dos falla, el login **no** entrega el usuario y responde un error:
+
+| Caso | HTTP | Respuesta |
+|------|------|-----------|
+| Usuario correcto y activo | 200 | `success: true` + `user` normalizado |
+| Usuario o contraseña incorrectos (`auth != 1`) | 401 | `success: false`, `error_code: invalid_credentials` |
+| Autenticado pero cuenta no activa (`auth == 1`, `status != "Active"`) | 403 | `success: false`, `error_code: inactive_account` |
+| Body vacío / faltan credenciales | 400 | `success: false`, `error_code: missing_credentials` |
+
+> **Para Flutter/Web:** distinguir `invalid_credentials` (credenciales mal) de
+> `inactive_account` (credenciales bien, pero cuenta vencida/deshabilitada). El
+> segundo debería invitar a **renovar el plan**, no a corregir la contraseña. El
+> detalle de todos los errores está en [`errores_xtream.md`](errores_xtream.md).
 
 ---
 
