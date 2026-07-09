@@ -3,20 +3,15 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/screens/login_screen.dart';
 import '../../live_tv/screens/categories_screen.dart';
+import '../../live_tv/screens/player_screen.dart';
 import '../../live_tv/services/live_tv_service.dart';
-import '../../live_tv/models/live_category.dart';
 import '../widgets/home_menu_card.dart';
 import '../widgets/welcome_banner.dart';
 
 class HomeScreen extends StatefulWidget {
   final String username;
-  final String password;
 
-  const HomeScreen({
-    super.key,
-    required this.username,
-    required this.password,
-  });
+  const HomeScreen({super.key, required this.username});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -24,7 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final LiveTvService _liveTvService = LiveTvService();
-  late Future<List<LiveCategory>> _categoriesFuture;
+  late Future<List<String>> _categoriesFuture;
 
   // 0 = Home (menú de opciones), 1 = Cuenta.
   int _selectedIndex = 0;
@@ -32,10 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _categoriesFuture = _liveTvService.getCategories(
-      username: widget.username,
-      password: widget.password,
-    );
+    _categoriesFuture = _liveTvService.getCategories();
 
     // Muestra la ventana flotante de bienvenida apenas se construye
     // la pantalla (justo después del login) y se retira sola.
@@ -63,10 +55,16 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => CategoriesScreen(
-          username: widget.username,
-          password: widget.password,
-        ),
+        builder: (_) => const CategoriesScreen(),
+      ),
+    );
+  }
+
+  void _goToPlayer() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const PlayerScreen(),
       ),
     );
   }
@@ -80,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildCategoryBadge() {
-    return FutureBuilder<List<LiveCategory>>(
+    return FutureBuilder<List<String>>(
       future: _categoriesFuture,
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox.shrink();
@@ -114,8 +112,8 @@ class _HomeScreenState extends State<HomeScreen> {
         title: 'TV en vivo',
         subtitle: 'Mira la señal en vivo de tus canales favoritos.',
         icon: Icons.live_tv_rounded,
-        iconColor: AppColors.orange,
-        onTap: _goToCategories,
+        iconColor: AppColors.neonGreen,
+        onTap: _goToPlayer,
       ),
       HomeMenuCard(
         title: 'Canales',
@@ -281,7 +279,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required bool isSelected,
     required VoidCallback onTap,
   }) {
-    final color = isSelected ? AppColors.orange : AppColors.white70;
+    final color = isSelected ? AppColors.neonGreen : AppColors.white70;
     return Expanded(
       child: InkWell(
         onTap: onTap,

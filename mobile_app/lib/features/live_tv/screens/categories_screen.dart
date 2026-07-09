@@ -1,17 +1,10 @@
 import 'package:flutter/material.dart';
-import '../models/live_category.dart';
+
 import '../../../core/constants/app_colors.dart';
 import '../services/live_tv_service.dart';
 
 class CategoriesScreen extends StatefulWidget {
-  final String username;
-  final String password;
-
-  const CategoriesScreen({
-    super.key,
-    required this.username,
-    required this.password,
-  });
+  const CategoriesScreen({super.key});
 
   @override
   State<CategoriesScreen> createState() => _CategoriesScreenState();
@@ -20,7 +13,7 @@ class CategoriesScreen extends StatefulWidget {
 class _CategoriesScreenState extends State<CategoriesScreen> {
   final LiveTvService _service = LiveTvService();
 
-  late Future<List<LiveCategory>> _categories;
+  late Future<List<String>> _categories;
 
   // Íconos decorativos asignados de forma cíclica a cada categoría.
   static const List<IconData> _categoryIcons = [
@@ -37,18 +30,12 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
   @override
   void initState() {
     super.initState();
-    _categories = _service.getCategories(
-      username: widget.username,
-      password: widget.password,
-    );
+    _categories = _service.getCategories();
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _categories = _service.getCategories(
-        username: widget.username,
-        password: widget.password,
-      );
+      _categories = _service.getCategories();
     });
     await _categories;
   }
@@ -76,12 +63,12 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           ),
         ),
         child: SafeArea(
-          child: FutureBuilder<List<LiveCategory>>(
+          child: FutureBuilder<List<String>>(
             future: _categories,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(color: AppColors.orange),
+                  child: CircularProgressIndicator(color: AppColors.neonGreen),
                 );
               }
 
@@ -101,7 +88,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                       ElevatedButton.icon(
                         onPressed: _refresh,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.orange,
+                          backgroundColor: AppColors.neonGreen,
                           foregroundColor: AppColors.white,
                         ),
                         icon: const Icon(Icons.refresh_rounded),
@@ -112,13 +99,13 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                 );
               }
 
-              final categories = snapshot.data ?? <LiveCategory>[];
+              final categories = snapshot.data ?? [];
               final width = MediaQuery.of(context).size.width;
               final crossAxisCount = width >= 900 ? 3 : (width >= 600 ? 2 : 1);
 
               return RefreshIndicator(
                 onRefresh: _refresh,
-                color: AppColors.orange,
+                color: AppColors.neonGreen,
                 child: CustomScrollView(
                   slivers: [
                     // Contador visual de categorías disponibles.
@@ -196,7 +183,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                             .showSnackBar(
                                           SnackBar(
                                             content: Text(
-                                              'Abriendo ${categories[index].name}...',
+                                              'Abriendo ${categories[index]}...',
                                             ),
                                           ),
                                         );
@@ -212,28 +199,28 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                               width: 44,
                                               height: 44,
                                               decoration: BoxDecoration(
-                                                color: AppColors.orange
+                                                color: AppColors.neonGreen
                                                     .withValues(alpha: 0.15),
                                                 shape: BoxShape.circle,
                                               ),
                                               child: Icon(
                                                 icon,
-                                                color: AppColors.orange,
+                                                color: AppColors.neonGreen,
                                                 size: 22,
                                               ),
                                             ),
                                             const SizedBox(width: 12),
                                             Expanded(
                                               child: Text(
-                                                '${categories[index].id} - ${categories[index].name}',
+                                                categories[index],
                                                 style: const TextStyle(
                                                   color: AppColors.title,
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 15,
-                                                  ),
-                                                  overflow: TextOverflow.ellipsis,
                                                 ),
+                                                overflow: TextOverflow.ellipsis,
                                               ),
+                                            ),
                                           ],
                                         ),
                                       ),

@@ -16,7 +16,7 @@ class HomeMenuCard extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     required this.onTap,
-    this.iconColor = AppColors.orange,
+    this.iconColor = AppColors.neonGreen,
     this.trailingBadge,
   });
 

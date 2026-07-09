@@ -59,12 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (success) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => HomeScreen(
-              username: username,
-              password: password,
-            ),
-          ),
+          MaterialPageRoute(builder: (_) => HomeScreen(username: username)),
         );
       }
     } catch (e) {
@@ -96,7 +91,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(color: AppColors.white70),
-      prefixIcon: Icon(icon, color: AppColors.orange),
+      prefixIcon: Icon(icon, color: AppColors.neonGreen),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: AppColors.inputBackground,
@@ -106,11 +101,11 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: AppColors.orange, width: 2),
+        borderSide: const BorderSide(color: AppColors.neonGreen, width: 2),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: AppColors.orange, width: 2.5),
+        borderSide: const BorderSide(color: AppColors.neonGreen, width: 2.5),
       ),
     );
   }
@@ -137,12 +132,12 @@ class _LoginScreenState extends State<LoginScreen> {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: AppColors.orange.withValues(alpha: 0.12),
+              color: AppColors.neonGreen.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.live_tv_rounded,
-              color: AppColors.orange,
+              color: AppColors.neonGreen,
               size: 34,
             ),
           ),
@@ -241,12 +236,12 @@ class _LoginScreenState extends State<LoginScreen> {
             width: 96,
             height: 96,
             decoration: BoxDecoration(
-              color: AppColors.orange.withValues(alpha: 0.15),
+              color: AppColors.neonGreen.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.live_tv_rounded,
-              color: AppColors.orange,
+              color: AppColors.neonGreen,
               size: 52,
             ),
           ),

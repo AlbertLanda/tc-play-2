@@ -1,43 +1,29 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-
-import '../models/live_category.dart';
-
 class LiveTvService {
-  static const String _baseUrl = 'http://127.0.0.1:8000';
+  //static const String _baseUrl = 'https://api.telecable.example.com';
+ // static const String _categoriesEndpoint = '/api/live-tv/categories';
 
-  Future<List<LiveCategory>> getCategories({
-    required String username,
-    required String password,
-  }) async {
-    final response = await http.post(
-    Uri.parse('$_baseUrl/api/xtream/live/categories/'),
-    headers: {'Content-Type': 'application/json'},
-    body: jsonEncode({
-      'username': username,
-      'password': password,
-    }),
-  );
+  Future<List<String>> getCategories() async {
+    await Future.delayed(const Duration(milliseconds: 600));
 
-  if (response.statusCode == 200) {
-    final List<dynamic> data = jsonDecode(response.body);
-
-    return data
-        .map((item) => LiveCategory.fromJson(item))
-        .toList();
+    return const [
+      'Noticias',
+      'Deportes',
+      'Entretenimiento',
+      'Películas',
+      'Infantil',
+      'Música',
+      'Documentales',
+      'Internacional',
+    ];
   }
 
-  throw Exception('No se pudieron obtener las categorías');
-}
-
   Future<Map<String, dynamic>> getLiveTvData() async {
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(milliseconds: 600));
 
     return {
       "currentChannel": {
         "number": "001",
         "name": "TC Noticias HD",
-        "isLive": true,
       },
       "channels": [
         {
@@ -54,11 +40,11 @@ class LiveTvService {
         },
         {
           "number": "004",
-          "name": "TC Música",
+          "name": "TC Infantil",
         },
         {
           "number": "005",
-          "name": "TC Infantil",
+          "name": "TC Música",
         },
       ],
     };
