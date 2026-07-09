@@ -226,6 +226,29 @@ Recomendaciones para consumir esta API desde las apps cliente:
 
 ---
 
+## Propuesta: convención única para los IDs
+
+**Problema:** hoy los identificadores no tienen un tipo uniforme:
+
+- `categories[].id` → **string** (`"1"`).
+- `channels[].id` → **int** (`43`), pero `channels[].category_id` → **string** (`"1"`).
+
+Esto obliga a Flutter/Web a parsear con cuidado y es fuente de errores sutiles
+(comparaciones que fallan por tipo, `int` vs `String` en Dart, etc.).
+
+**Propuesta (recomendada): unificar todos los IDs como `string`.** Razones:
+
+- Es el formato **nativo** con el que Xtream devuelve los IDs, así que se evita
+  convertir de ida y vuelta.
+- Un ID es un **identificador**, no un número para operar; no se suma ni se resta.
+- Elimina ambigüedad: la app siempre trata `id` y `category_id` igual.
+
+**Impacto:** cambiar `channels[].id` de `int` a `string` en `normalize_channels`.
+Es un cambio de contrato, por lo que debe **coordinarse con Flutter/Web** antes de
+aplicarlo. Pendiente de decisión con el equipo; no implementado aún.
+
+---
+
 ## Propuesta futura: endpoint mock sin VPN/NOC
 
 **Problema:** hoy todos los endpoints requieren **VPN/NOC activa** para alcanzar a
