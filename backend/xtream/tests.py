@@ -195,8 +195,9 @@ class LiveProxyUrlTests(APITestCase):
         )
         self.assertEqual(response.data["error_code"], "ffmpeg_not_available")
 
+    @patch("xtream.views.transcoder.wait_for_hls_index", return_value=True)
     @patch("xtream.views.transcoder.start_hls_transcode")
-    def test_proxy_exitoso(self, mock_start):
+    def test_proxy_exitoso(self, mock_start, mock_wait):
         """Éxito -> 200 con hls_url y el modo elegido (remux/transcode)."""
         mock_start.return_value = ("123", False, "transcode")
 
@@ -209,8 +210,9 @@ class LiveProxyUrlTests(APITestCase):
         self.assertEqual(response.data["mode"], "transcode")
         self.assertFalse(response.data["reused"])
 
+    @patch("xtream.views.transcoder.wait_for_hls_index", return_value=True)
     @patch("xtream.views.transcoder.start_hls_transcode")
-    def test_no_filtra_credenciales(self, mock_start):
+    def test_no_filtra_credenciales(self, mock_start, mock_wait):
         """La respuesta no debe contener la contraseña ni la URL original."""
         mock_start.return_value = ("123", False, "remux")
 
@@ -219,7 +221,7 @@ class LiveProxyUrlTests(APITestCase):
         cuerpo = str(response.data)
         self.assertNotIn("cualquiera", cuerpo)  # password
         self.assertNotIn("/live/", cuerpo)      # ruta de la URL original TS
-
+    
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_reutiliza_proceso_activo(self, mock_start):
         """Si ya hay HLS activo, el transcoder lo reutiliza (reused=True)."""

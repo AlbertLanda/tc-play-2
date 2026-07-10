@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 from django.conf import settings
 
@@ -121,6 +122,20 @@ def _hls_dir(stream_id: str):
 def _index_path(stream_id: str):
     return _hls_dir(stream_id) / "index.m3u8"
 
+def wait_for_hls_index(stream_id: str, timeout_seconds: int = 8) -> bool:
+    """
+    Espera unos segundos a que FFmpeg genere el index.m3u8.
+    Devuelve True si el archivo existe; False si no aparece dentro del tiempo.
+    """
+    index = _index_path(stream_id)
+    deadline = time.time() + timeout_seconds
+
+    while time.time() < deadline:
+        if index.exists() and index.stat().st_size > 0:
+            return True
+        time.sleep(0.5)
+
+    return False
 
 def build_hls_url(request, stream_id: str) -> str:
     """
@@ -249,11 +264,15 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
             "-c:a", "aac",
         ]
 
+    output_path = Path(output_path).resolve()
+    segment_pattern = output_path.parent / "segment_%03d.ts"
+
     command += [
         "-f", "hls",
         "-hls_time", "3",
         "-hls_list_size", "6",
         "-hls_flags", "delete_segments",
+        "-hls_segment_filename", str(segment_pattern),
         str(output_path),
     ]
     return command

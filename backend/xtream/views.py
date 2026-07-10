@@ -218,6 +218,16 @@ def live_proxy_url(request):
             source_url, safe_stream_id
         )
 
+        if not reused and not transcoder.wait_for_hls_index(safe_stream_id):
+            return Response(
+                {
+                    "success": False,
+                    "error_code": "hls_output_error",
+                    "message": "FFmpeg inició, pero no generó la salida HLS."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
         return Response({
             "success": True,
             "stream_id": safe_stream_id,
