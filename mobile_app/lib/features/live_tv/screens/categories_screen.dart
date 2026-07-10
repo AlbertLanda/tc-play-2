@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../models/live_category.dart';
 import '../services/live_tv_service.dart';
+import 'channels_screen.dart';
 
 class CategoriesScreen extends StatefulWidget {
   final String username;
@@ -226,11 +227,14 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                           BorderRadius.circular(16),
 
                                       onTap: () {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Abriendo ${categories[index].name}...',
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => ChannelsScreen(
+                                              username: widget.username,
+                                              password: widget.password,
+                                              categoryId: categories[index].id,
+                                              categoryName: categories[index].name,
                                             ),
                                           ),
                                         );
