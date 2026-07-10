@@ -76,6 +76,37 @@ class LiveTvService {
         .toList();
   }
 
+  /// Obtiene la URL del stream del canal seleccionado.
+  Future<String> getStreamUrl({
+    required String username,
+    required String password,
+    required int streamId,
+    String output = 'm3u8',
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/api/xtream/live/stream-url/'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'username': username,
+        'password': password,
+        'stream_id': streamId.toString(),
+        'output': output,
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(
+        data['message'] ?? 'No se pudo obtener la URL del canal.',
+      );
+    }
+
+    return data['stream_url'].toString();
+  }
+
   /// Información temporal del reproductor
   Future<Map<String, dynamic>> getLiveTvData() async {
     await Future.delayed(const Duration(seconds: 2));

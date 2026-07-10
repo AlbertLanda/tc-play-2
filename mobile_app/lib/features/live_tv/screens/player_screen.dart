@@ -1,9 +1,24 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../services/live_tv_service.dart';
+import 'package:video_player/video_player.dart';
 
 class PlayerScreen extends StatefulWidget {
-  const PlayerScreen({super.key});
+  final String username;
+  final String password;
+  final int streamId;
+  final String channelName;
+  final String? channelIcon;
+
+  const PlayerScreen({
+    super.key,
+    required this.username,
+    required this.password,
+    required this.streamId,
+    required this.channelName,
+    this.channelIcon,
+  });
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -12,151 +27,179 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   final LiveTvService _service = LiveTvService();
 
-  late Future<Map<String, dynamic>> _future;
+  late Future<String> _streamUrl;
+
+  VideoPlayerController? _videoController;
+
+  bool _isInitializingPlayer = false;
+  bool _playerError = false;
 
   @override
   void initState() {
     super.initState();
-    _future = _service.getLiveTvData();
+
+    _streamUrl = _service.getStreamUrl(
+      username: widget.username,
+      password: widget.password,
+      streamId: widget.streamId,
+    );
   }
+
+  Future<void> _initializePlayer(String url) async {
+    try {
+      setState(() {
+        _isInitializingPlayer = true;
+        _playerError = false;
+      });
+
+      _videoController = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+      );
+
+      await _videoController!.initialize();
+
+      await _videoController!.play();
+
+      if (mounted) {
+        setState(() {
+          _isInitializingPlayer = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _playerError = true;
+          _isInitializingPlayer = false;
+
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _streamUrl = _service.getStreamUrl(
+        username: widget.username,
+        password: widget.password,
+        streamId: widget.streamId,
+      );
+    });
+
+    await _streamUrl;
+  }
+
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("Live TV"),
+        backgroundColor: AppColors.background,
+        title: Text(widget.channelName),
         centerTitle: true,
       ),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _future,
+
+      body: FutureBuilder<String>(
+        future: _streamUrl,
         builder: (context, snapshot) {
-          if (!snapshot.hasData) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(),
+              child: CircularProgressIndicator(
+                color: AppColors.neonGreen,
+              ),
             );
           }
 
-          final current = snapshot.data!["currentChannel"];
-          final channels = snapshot.data!["channels"] as List;
-
-          return Column(
-            children: [
-              const SizedBox(height: 20),
-
-              // Reproductor
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                height: 220,
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Stack(
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Center(
-                      child: Icon(
-                        Icons.live_tv,
-                        color: Colors.white,
-                        size: 90,
-                      ),
+                    const Icon(
+                      Icons.error_outline,
+                      color: Colors.red,
+                      size: 50,
                     ),
-                    Positioned(
-                      top: 15,
-                      left: 15,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          "EN VIVO",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'No se pudo obtener el stream.',
+                      style: TextStyle(color: AppColors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _refresh,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
                     ),
                   ],
                 ),
-              ),
+              );
+            }
 
-              const SizedBox(height: 20),
+            final streamUrl = snapshot.data!;
 
-              Text(
-                "${current["number"]} - ${current["name"]}",
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
+            if (_videoController == null && !_isInitializingPlayer) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _initializePlayer(streamUrl);
+              });
+            }
+
+            if (_isInitializingPlayer) {
+              return const Center(
+                child: CircularProgressIndicator(
+                  color: AppColors.neonGreen,
                 ),
-              ),
+              );
+            }
 
-              const SizedBox(height: 8),
-
-              const Text(
-                "Transmisión simulada",
-                style: TextStyle(
-                  color: Colors.grey,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.keyboard_arrow_up),
-                    label: const Text("Canal +"),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.keyboard_arrow_down),
-                    label: const Text("Canal -"),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 25),
-
-              const Divider(),
-
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    "Lista de canales",
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
+            if (_playerError) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      color: Colors.red,
+                      size: 50,
                     ),
-                  ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Error al reproducir el canal.',
+                      style: TextStyle(color: AppColors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () {
+                        _initializePlayer(streamUrl);
+                      },
+                      child: const Text('Reintentar'),
+                    ),
+                  ],
                 ),
-              ),
+              );
+            }
 
-              Expanded(
-                child: ListView.builder(
-                  itemCount: channels.length,
-                  itemBuilder: (context, index) {
-                    final item = channels[index];
-
-                    return ListTile(
-                      leading: const Icon(Icons.tv),
-                      title: Text(item["name"]),
-                      subtitle: Text("Canal ${item["number"]}"),
-                      trailing: const Icon(Icons.play_circle_fill),
-                    );
-                  },
+            if (_videoController != null && 
+                _videoController!.value.isInitialized) {
+              return Center(
+                child: AspectRatio(
+                  aspectRatio: _videoController!.value.aspectRatio,
+                  child: VideoPlayer(_videoController!),
                 ),
+              );
+            }
+
+            return const Center(
+              child: CircularProgressIndicator(
+                color: AppColors.neonGreen,
               ),
-            ],
-          );
+            );
         },
       ),
     );
