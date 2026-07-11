@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 
+from decouple import config
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -48,6 +50,7 @@ INSTALLED_APPS = [
     "app_config",
     "banners",
     "xtream",
+    "astra",
 ]
 
 MIDDLEWARE = [
@@ -127,6 +130,41 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Media files (archivos generados en runtime: salidas HLS del transcoder, etc.)
+# https://docs.djangoproject.com/en/5.2/topics/files/
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# --- Transcoder HLS (prueba técnica, ver docs/transcoder_hls.md) ---
+# Ruta del binario de FFmpeg. Se deja configurable por entorno para no
+# asumir que está en el PATH del sistema en todos los equipos/servidores.
+FFMPEG_BIN = config("FFMPEG_BIN", default="ffmpeg")
+
+# Ruta del binario de ffprobe (viene junto a FFmpeg). Se usa para leer el
+# códec original del canal y decidir entre remux y transcode.
+FFPROBE_BIN = config("FFPROBE_BIN", default="ffprobe")
+
+# Carpeta raíz donde el transcoder escribe cada salida HLS: MEDIA/hls/<stream_id>/
+HLS_ROOT = MEDIA_ROOT / "hls"
+
+# Segundos que un index.m3u8 se considera "activo/reciente" antes de
+# permitir relanzar un proceso para el mismo stream_id (evita duplicados).
+HLS_ACTIVE_TTL_SECONDS = config("HLS_ACTIVE_TTL_SECONDS", default=30, cast=int)
+
+# Límite de procesos FFmpeg simultáneos. Si se alcanza, el endpoint responde
+# transcoder_busy en vez de lanzar más procesos y saturar el servidor.
+MAX_CONCURRENT_TRANSCODES = config("MAX_CONCURRENT_TRANSCODES", default=5, cast=int)
+
+# --- Astra playlist ---
+ASTRA_PLAYLIST_URL = config("ASTRA_PLAYLIST_URL", default="")
+
+# Limpieza automática: si la salida HLS de un stream no se actualiza en este
+# tiempo (FFmpeg murió/estancado), se detiene el proceso y se borra la carpeta.
+HLS_CLEANUP_TTL_SECONDS = config("HLS_CLEANUP_TTL_SECONDS", default=300, cast=int)
+
+# Cada cuánto corre el hilo de limpieza en segundo plano.
+HLS_CLEANUP_INTERVAL_SECONDS = config("HLS_CLEANUP_INTERVAL_SECONDS", default=60, cast=int)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

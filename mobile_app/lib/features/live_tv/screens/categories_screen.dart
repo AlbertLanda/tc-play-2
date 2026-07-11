@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../models/live_category.dart';
 import '../services/live_tv_service.dart';
+import 'channels_screen.dart';
 
 class CategoriesScreen extends StatefulWidget {
-  const CategoriesScreen({super.key});
+  final String username;
+  final String password;
+
+  const CategoriesScreen({
+    super.key,
+    required this.username,
+    required this.password,
+  });
 
   @override
   State<CategoriesScreen> createState() => _CategoriesScreenState();
@@ -13,9 +22,8 @@ class CategoriesScreen extends StatefulWidget {
 class _CategoriesScreenState extends State<CategoriesScreen> {
   final LiveTvService _service = LiveTvService();
 
-  late Future<List<String>> _categories;
+  late Future<List<LiveCategory>> _categories;
 
-  // Íconos decorativos asignados a cada categoría.
   static const List<IconData> _categoryIcons = [
     Icons.newspaper_rounded,
     Icons.sports_soccer_rounded,
@@ -30,13 +38,21 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
   @override
   void initState() {
     super.initState();
-    _categories = _service.getCategories();
+
+    _categories = _service.getCategories(
+      username: widget.username,
+      password: widget.password,
+    );
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _categories = _service.getCategories();
+      _categories = _service.getCategories(
+        username: widget.username,
+        password: widget.password,
+      );
     });
+
     await _categories;
   }
 
@@ -63,12 +79,14 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           ),
         ),
         child: SafeArea(
-          child: FutureBuilder<List<String>>(
+          child: FutureBuilder<List<LiveCategory>>(
             future: _categories,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                  child: CircularProgressIndicator(color: AppColors.neonGreen),
+                  child: CircularProgressIndicator(
+                    color: AppColors.neonGreen,
+                  ),
                 );
               }
 
@@ -77,12 +95,17 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.error_outline_rounded,
-                          color: Colors.redAccent, size: 42),
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        color: Colors.redAccent,
+                        size: 42,
+                      ),
                       const SizedBox(height: 12),
                       const Text(
                         'Error al cargar categorías',
-                        style: TextStyle(color: AppColors.white),
+                        style: TextStyle(
+                          color: AppColors.white,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton.icon(
@@ -100,17 +123,25 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
               }
 
               final categories = snapshot.data ?? [];
+
               final width = MediaQuery.of(context).size.width;
-              final crossAxisCount = width >= 900 ? 3 : (width >= 600 ? 2 : 1);
+
+              final crossAxisCount =
+                  width >= 900 ? 3 : (width >= 600 ? 2 : 1);
 
               return RefreshIndicator(
                 onRefresh: _refresh,
                 color: AppColors.neonGreen,
                 child: CustomScrollView(
                   slivers: [
-                    // Contador visual de categorías disponibles.
+
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                      padding: const EdgeInsets.fromLTRB(
+                        20,
+                        20,
+                        20,
+                        8,
+                      ),
                       sliver: SliverToBoxAdapter(
                         child: Align(
                           alignment: Alignment.centerLeft,
@@ -126,8 +157,11 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.category_rounded,
-                                    color: AppColors.white, size: 18),
+                                const Icon(
+                                  Icons.category_rounded,
+                                  color: AppColors.white,
+                                  size: 18,
+                                ),
                                 const SizedBox(width: 6),
                                 Text(
                                   '${categories.length} categorías disponibles',
@@ -143,8 +177,15 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                         ),
                       ),
                     ),
+
+
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      padding: const EdgeInsets.fromLTRB(
+                        20,
+                        8,
+                        20,
+                        24,
+                      ),
                       sliver: categories.isEmpty
                           ? const SliverToBoxAdapter(
                               child: Padding(
@@ -152,7 +193,9 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                 child: Center(
                                   child: Text(
                                     'No hay categorías disponibles.',
-                                    style: TextStyle(color: AppColors.white70),
+                                    style: TextStyle(
+                                      color: AppColors.white70,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -167,70 +210,117 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                               ),
                               delegate: SliverChildBuilderDelegate(
                                 (context, index) {
+
                                   final icon = _categoryIcons[
                                       index % _categoryIcons.length];
+
                                   return Card(
                                     color: AppColors.white,
                                     elevation: 5,
                                     shadowColor: Colors.black38,
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(16),
+                                      borderRadius:
+                                          BorderRadius.circular(16),
                                     ),
                                     child: InkWell(
-                                      borderRadius: BorderRadius.circular(16),
+                                      borderRadius:
+                                          BorderRadius.circular(16),
+
                                       onTap: () {
-                                        ScaffoldMessenger.of(context)
-                                            .showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Abriendo ${categories[index]}...',
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => ChannelsScreen(
+                                              username: widget.username,
+                                              password: widget.password,
+                                              categoryId: categories[index].id,
+                                              categoryName: categories[index].name,
                                             ),
                                           ),
                                         );
                                       },
+
                                       child: Padding(
-                                        padding: const EdgeInsets.symmetric(
+                                        padding:
+                                            const EdgeInsets.symmetric(
                                           horizontal: 16,
                                           vertical: 12,
                                         ),
+
                                         child: Row(
                                           children: [
+
                                             Container(
                                               width: 44,
                                               height: 44,
                                               decoration: BoxDecoration(
                                                 color: AppColors.neonGreen
-                                                    .withValues(alpha: 0.15),
+                                                    .withValues(
+                                                      alpha: 0.15,
+                                                    ),
                                                 shape: BoxShape.circle,
                                               ),
+
                                               child: Icon(
                                                 icon,
-                                                color: AppColors.neonGreen,
+                                                color:
+                                                    AppColors.neonGreen,
                                                 size: 22,
                                               ),
                                             ),
+
                                             const SizedBox(width: 12),
+
                                             Expanded(
-                                              child: Text(
-                                                categories[index],
-                                                style: const TextStyle(
-                                                  color: AppColors.title,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 15,
-                                                ),
-                                                overflow: TextOverflow.ellipsis,
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+
+                                                children: [
+
+                                                  Text(
+                                                    categories[index].name,
+                                                    style:
+                                                        const TextStyle(
+                                                      color:
+                                                          AppColors.title,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 15,
+                                                    ),
+
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+
+                                                  Text(
+                                                    'ID: ${categories[index].id}',
+                                                    style:
+                                                        const TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.grey,
+                                                    ),
+                                                  ),
+
+                                                ],
                                               ),
                                             ),
+
                                           ],
                                         ),
                                       ),
                                     ),
                                   );
                                 },
+
                                 childCount: categories.length,
                               ),
                             ),
                     ),
+
                   ],
                 ),
               );
