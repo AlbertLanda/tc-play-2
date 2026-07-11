@@ -146,11 +146,31 @@ def build_hls_url(request, stream_id: str) -> str:
     return request.build_absolute_uri("/" + relative.lstrip("/"))
 
 
+def is_hls_output_damaged(stream_id: str) -> bool:
+    """
+    True si la salida HLS existe pero está dañada: index.m3u8 vacío o
+    carpeta sin ningún segmento .ts. Una salida dañada no debe reutilizarse;
+    hay que limpiarla y regenerarla.
+    """
+    index = _index_path(stream_id)
+    if not index.exists():
+        return False
+
+    if index.stat().st_size == 0:
+        return True
+
+    # index con contenido pero sin segmentos en disco -> playlist rota.
+    segments = list(_hls_dir(stream_id).glob("*.ts"))
+    return len(segments) == 0
+
+
 def is_stream_active(stream_id: str) -> bool:
     """
     True si ya existe un HLS "vivo" para este stream_id: hay un proceso
     FFmpeg registrado y en ejecución, o existe un index.m3u8 reciente
-    (dentro de HLS_ACTIVE_TTL_SECONDS). Sirve para no duplicar procesos.
+    (dentro de HLS_ACTIVE_TTL_SECONDS) y sano. Sirve para no duplicar
+    procesos. Si la salida está dañada (index vacío o sin segmentos) y no
+    hay proceso vivo, se limpia para que el siguiente request la regenere.
     """
     with _lock:
         process = _processes.get(stream_id)
@@ -160,12 +180,76 @@ def is_stream_active(stream_id: str) -> bool:
 
     index = _index_path(stream_id)
     if index.exists():
+        # Sin proceso vivo: si la salida quedó dañada, no reutilizarla.
+        # Se borra aquí mismo para que el caller lance un FFmpeg nuevo.
+        if is_hls_output_damaged(stream_id):
+            remove_hls_output(stream_id)
+            return False
+
         ttl = getattr(settings, "HLS_ACTIVE_TTL_SECONDS", 30)
         edad = time.time() - index.stat().st_mtime
         if edad <= ttl:
             return True
 
     return False
+
+
+def remove_hls_output(stream_id: str) -> bool:
+    """
+    Borra la carpeta HLS de un stream_id (index.m3u8 + segmentos).
+    Devuelve True si existía algo que borrar. No toca el proceso: para
+    detenerlo usar stop_hls_transcode().
+    """
+    folder = _hls_dir(stream_id)
+    if not folder.exists():
+        return False
+    shutil.rmtree(folder, ignore_errors=True)
+    return True
+
+
+def get_transcoder_status() -> dict:
+    """
+    Estado global del transcoder para el endpoint de monitoreo:
+    procesos FFmpeg vivos, límite configurado y salidas HLS en disco.
+    No expone URLs de origen ni credenciales.
+    """
+    with _lock:
+        snapshot = dict(_processes)
+
+    alive = {sid for sid, proc in snapshot.items() if proc.poll() is None}
+
+    outputs = []
+    hls_root = settings.HLS_ROOT
+    if hls_root.exists():
+        for folder in sorted(hls_root.iterdir()):
+            if not folder.is_dir():
+                continue
+
+            stream_id = folder.name
+            index = folder / "index.m3u8"
+            if index.exists():
+                stat = index.stat()
+                index_age = round(time.time() - stat.st_mtime, 1)
+                index_size = stat.st_size
+            else:
+                index_age = None
+                index_size = 0
+
+            outputs.append({
+                "stream_id": stream_id,
+                "process_alive": stream_id in alive,
+                "index_exists": index.exists(),
+                "index_age_seconds": index_age,
+                "index_size_bytes": index_size,
+                "segments": len(list(folder.glob("*.ts"))),
+                "damaged": is_hls_output_damaged(stream_id),
+            })
+
+    return {
+        "active_processes": len(alive),
+        "max_concurrent": getattr(settings, "MAX_CONCURRENT_TRANSCODES", 5),
+        "outputs": outputs,
+    }
 
 
 def probe_codecs(stream_url: str):
