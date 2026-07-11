@@ -5,4 +5,7 @@ export const API_ENDPOINTS = {
   liveCategories: `${API_BASE_URL}/api/xtream/live/categories/`,
   liveStreams: `${API_BASE_URL}/api/xtream/live/streams/`,
   streamUrl: `${API_BASE_URL}/api/xtream/live/stream-url/`,
+  proxyUrl: `${API_BASE_URL}/api/xtream/live/proxy-url/`,
+
+  astraChannels: `${API_BASE_URL}/api/astra/channels/`,
 };

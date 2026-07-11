@@ -4,6 +4,7 @@ import { HomePage } from './pages/HomePage';
 import { CategoriesPage } from './pages/CategoriesPage';
 import { ChannelsPage } from './pages/ChannelsPage';
 import { PlayerPage } from './pages/PlayerPage';
+import { AstraChannelsPage } from './pages/AstraChannelsPage';
 import './styles.css';
 
 const ROUTES = {
@@ -12,6 +13,7 @@ const ROUTES = {
   categories: 'categories',
   channels: 'channels',
   player: 'player',
+  astraChannels: 'astraChannels',
 };
 
 function App() {
@@ -43,12 +45,35 @@ function App() {
     setRoute(ROUTES.player);
   }
 
+  function handleSelectAstraChannel(channel) {
+    setSelectedChannel({
+      ...channel,
+      isAstra: true,
+      stream_url: channel.url,
+    });
+
+    setRoute(ROUTES.player);
+  }
+
   if (route === ROUTES.player && session && selectedChannel) {
     return (
       <PlayerPage
         session={session}
         channel={selectedChannel}
-        onBack={() => setRoute(ROUTES.channels)}
+        onBack={() =>
+          selectedChannel.isAstra
+            ? setRoute(ROUTES.astraChannels)
+            : setRoute(ROUTES.channels)
+        }
+      />
+    );
+  }
+
+  if (route === ROUTES.astraChannels && session) {
+    return (
+      <AstraChannelsPage
+        onBack={() => setRoute(ROUTES.home)}
+        onSelectChannel={handleSelectAstraChannel}
       />
     );
   }
@@ -80,6 +105,7 @@ function App() {
         session={session}
         onLogout={handleLogout}
         onGoToCategories={() => setRoute(ROUTES.categories)}
+        onGoToAstra={() => setRoute(ROUTES.astraChannels)}
       />
     );
   }

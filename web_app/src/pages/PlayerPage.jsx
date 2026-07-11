@@ -36,6 +36,11 @@ export function PlayerPage({ session, channel, onBack }) {
   }
 
   async function loadUrl(output) {
+    if (channel?.isAstra && channel?.stream_url) {
+      console.log('[TC Play] Stream URL Astra:', channel.stream_url);
+      return channel.stream_url;
+    }
+
     const url = await getStreamUrl(
       session.username,
       session.password,
@@ -127,7 +132,7 @@ export function PlayerPage({ session, channel, onBack }) {
         mediaErrorCountRef.current = 0;
         lastTimeRef.current = 0;
 
-        const url = await loadUrl('m3u8');
+        const url = await loadUrl(channel?.isAstra ? 'astra' : 'm3u8');
         setStreamUrl(url);
       } catch (error) {
         setErrorMessage(error.message || 'No se pudo cargar el canal.');
@@ -366,8 +371,8 @@ export function PlayerPage({ session, channel, onBack }) {
 
             <aside className="player-info">
               <div className="channel-logo large">
-                {channel.icon ? (
-                  <img src={channel.icon} alt={channel.name} />
+                {channel.icon || channel.logo ? (
+                  <img src={channel.icon || channel.logo} alt={channel.name} />
                 ) : (
                   <span>📺</span>
                 )}
@@ -375,7 +380,9 @@ export function PlayerPage({ session, channel, onBack }) {
 
               <h2>{channel.name}</h2>
               <p>ID: {channel.id}</p>
-              <p>Categoría: {channel.category_id}</p>
+              <p>
+                Categoría: {channel.isAstra ? 'Astra HLS' : channel.category_id}
+              </p>
               <p>Modo: {playerMode === 'hls' ? 'HLS' : 'MPEG-TS'}</p>
 
               {errorMessage ? (

@@ -1,6 +1,11 @@
 import { HomeMenuCard } from '../components/HomeMenuCard';
 
-export function HomePage({ session, onLogout, onGoToCategories }) {
+export function HomePage({
+  session,
+  onLogout,
+  onGoToCategories,
+  onGoToAstra,
+}) {
   const username = session?.user?.username || session?.username || 'Usuario';
 
   return (
@@ -26,8 +31,15 @@ export function HomePage({ session, onLogout, onGoToCategories }) {
           <HomeMenuCard
             icon="📺"
             title="TV en vivo"
-            description="Explorar categorías y canales disponibles."
+            description="Explorar categorías y canales disponibles desde Xtream."
             onClick={onGoToCategories}
+          />
+
+          <HomeMenuCard
+            icon="🛰️"
+            title="Canales Astra"
+            description="Reproducir canales HLS desde la playlist técnica de Astra."
+            onClick={onGoToAstra}
           />
 
           <HomeMenuCard
