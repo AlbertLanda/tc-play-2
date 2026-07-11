@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "app_config",
     "banners",
     "xtream",
+    "astra",
 ]
 
 MIDDLEWARE = [
@@ -154,6 +155,9 @@ HLS_ACTIVE_TTL_SECONDS = config("HLS_ACTIVE_TTL_SECONDS", default=30, cast=int)
 # Límite de procesos FFmpeg simultáneos. Si se alcanza, el endpoint responde
 # transcoder_busy en vez de lanzar más procesos y saturar el servidor.
 MAX_CONCURRENT_TRANSCODES = config("MAX_CONCURRENT_TRANSCODES", default=5, cast=int)
+
+# --- Astra playlist ---
+ASTRA_PLAYLIST_URL = config("ASTRA_PLAYLIST_URL", default="")
 
 # Limpieza automática: si la salida HLS de un stream no se actualiza en este
 # tiempo (FFmpeg murió/estancado), se detiene el proceso y se borra la carpeta.
