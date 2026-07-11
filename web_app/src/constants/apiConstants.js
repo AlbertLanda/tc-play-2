@@ -8,4 +8,5 @@ export const API_ENDPOINTS = {
   proxyUrl: `${API_BASE_URL}/api/xtream/live/proxy-url/`,
 
   astraChannels: `${API_BASE_URL}/api/astra/channels/`,
+  astraProxyUrl: `${API_BASE_URL}/api/astra/proxy-url/`,
 };

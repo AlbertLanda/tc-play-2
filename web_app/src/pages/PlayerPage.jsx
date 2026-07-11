@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import { getStreamUrl } from '../api/liveTvApi';
+import { getAstraProxyUrl } from '../api/astraApi';
 
 export function PlayerPage({ session, channel, onBack }) {
   const videoRef = useRef(null);
@@ -52,25 +53,37 @@ export function PlayerPage({ session, channel, onBack }) {
     return url;
   }
 
-  async function switchToTsFallback() {
+  async function switchToFallback() {
     if (hasTriedTsFallbackRef.current) {
       return;
     }
 
     try {
-      console.warn('[TC Play] Cambiando a fallback MPEG-TS...');
       hasTriedTsFallbackRef.current = true;
       mediaErrorCountRef.current = 0;
       lastTimeRef.current = 0;
       setErrorMessage('');
-      setPlayerMode('ts');
 
       destroyPlayers();
+
+      if (channel?.isAstra) {
+        console.warn('[TC Play] Cambiando a proxy/transcoder Astra...');
+        setPlayerMode('astra-proxy');
+
+        const proxyUrl = await getAstraProxyUrl(channel.id);
+        console.log('[TC Play] Astra proxy URL:', proxyUrl);
+
+        setStreamUrl(proxyUrl);
+        return;
+      }
+
+      console.warn('[TC Play] Cambiando a fallback MPEG-TS...');
+      setPlayerMode('ts');
 
       const tsUrl = await loadUrl('ts');
       setStreamUrl(tsUrl);
     } catch (error) {
-      setErrorMessage(error.message || 'No se pudo activar fallback TS.');
+      setErrorMessage(error.message || 'No se pudo activar el fallback.');
     }
   }
 
@@ -116,7 +129,7 @@ export function PlayerPage({ session, channel, onBack }) {
         video.currentTime === 0 &&
         stalledCount >= 3
       ) {
-        switchToTsFallback();
+        switchToFallback();
       }
     }, 10000);
   }
@@ -160,7 +173,7 @@ export function PlayerPage({ session, channel, onBack }) {
     destroyPlayers();
     setErrorMessage('');
 
-    if (playerMode === 'hls') {
+    if (playerMode === 'hls' || playerMode === 'astra-proxy') {
       if (Hls.isSupported()) {
         const hls = new Hls({
           debug: false,
@@ -240,7 +253,7 @@ export function PlayerPage({ session, channel, onBack }) {
               mediaErrorCountRef.current >= 10 &&
               video.currentTime === 0
             ) {
-              switchToTsFallback();
+              switchToFallback();
             }
 
             return;
@@ -275,11 +288,11 @@ export function PlayerPage({ session, channel, onBack }) {
               return;
             }
 
-            switchToTsFallback();
+            switchToFallback();
             return;
           }
 
-          switchToTsFallback();
+          switchToFallback();
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
@@ -290,7 +303,7 @@ export function PlayerPage({ session, channel, onBack }) {
 
         startPlaybackMonitor();
       } else {
-        switchToTsFallback();
+        switchToFallback();
       }
     }
 
@@ -383,7 +396,14 @@ export function PlayerPage({ session, channel, onBack }) {
               <p>
                 Categoría: {channel.isAstra ? 'Astra HLS' : channel.category_id}
               </p>
-              <p>Modo: {playerMode === 'hls' ? 'HLS' : 'MPEG-TS'}</p>
+              <p>
+                Modo:{' '}
+                {playerMode === 'astra-proxy'
+                  ? 'Astra Proxy HLS'
+                  : playerMode === 'hls'
+                    ? 'HLS'
+                    : 'MPEG-TS'}
+              </p>
 
               {errorMessage ? (
                 <p className="warning-text error-warning">
@@ -391,8 +411,9 @@ export function PlayerPage({ session, channel, onBack }) {
                 </p>
               ) : (
                 <p className="warning-text">
-                  Reproductor web con recuperación automática. Primero intenta HLS;
-                  si no logra iniciar, prueba MPEG-TS.
+                  {channel.isAstra
+                    ? 'Reproductor Astra. Primero intenta HLS directo; si falla, usa proxy/transcoder del backend.'
+                    : 'Reproductor web con recuperación automática. Primero intenta HLS; si no logra iniciar, prueba MPEG-TS.'}
                 </p>
               )}
             </aside>
