@@ -278,7 +278,7 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
     return command
 
 
-def start_hls_transcode(stream_url: str, stream_id: str):
+def start_hls_transcode(stream_url: str, stream_id: str, forced_mode: str = None):
     """
     Lanza (o reutiliza) un proceso FFmpeg que genera la salida HLS para el
     stream_id dado.
@@ -314,7 +314,7 @@ def start_hls_transcode(stream_url: str, stream_id: str):
 
     # ffprobe decide: remux si el códec ya es compatible con web, transcode
     # si no. Así solo se gasta CPU cuando realmente hace falta.
-    mode = decide_mode(stream_url)
+    mode = forced_mode or decide_mode(stream_url)
     command = _build_ffmpeg_command(stream_url, _index_path(stream_id), mode)
 
     try:

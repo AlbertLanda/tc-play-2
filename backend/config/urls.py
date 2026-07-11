@@ -7,6 +7,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/core/", include("core.urls")),
     path("api/xtream/", include("xtream.urls")),
+    path("api/astra/", include("astra.urls")),
 ]
 
 # En desarrollo Django sirve los archivos de MEDIA_ROOT (incluye las salidas
