@@ -13,6 +13,11 @@ Día 5 del plan de trabajo backend.
 > endpoints `stop-proxy` / `proxy-status` para Astra se documentan en
 > [`astra_control_procesos.md`](astra_control_procesos.md).
 
+> ℹ️ **Control y diagnóstico Xtream (Día 8):** los endpoints `stop-proxy`,
+> `proxy-status` y `diagnose-stream` para canales Xtream (códecs y modo
+> recomendado) se documentan en
+> [`xtream_control_procesos_diagnostico.md`](xtream_control_procesos_diagnostico.md).
+
 ## 1. Objetivo
 
 Algunos canales llegan bien por red pero fallan en el navegador por

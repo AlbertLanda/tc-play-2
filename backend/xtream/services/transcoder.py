@@ -292,36 +292,39 @@ def is_web_compatible(video_codec, audio_codec) -> bool:
     return video_codec in WEB_COMPATIBLE_VIDEO and audio_codec in WEB_COMPATIBLE_AUDIO
 
 
-def decide_mode(stream_url: str) -> str:
+def mode_from_codecs(video_codec, audio_codec) -> str:
     """
-    Decide cómo procesar el canal según su códec original, gastando la menor
-    CPU posible:
-      - "remux"           -> video y audio ya compatibles: solo re-empaqueta
-                             (CPU ~0).
-      - "transcode_audio" -> video h264 OK pero audio incompatible (p. ej.
-                             mp2): copia el video y recodifica solo el audio
-                             a AAC (CPU baja).
-      - "transcode"       -> video incompatible (hevc, mpeg2, etc.): recodifica
-                             video y audio a H.264/AAC (CPU alta).
+    Decide el modo de procesamiento a partir de códecs YA sondeados, sin
+    volver a ejecutar ffprobe. Útil para el endpoint de diagnóstico, que
+    ya tiene los códecs y no debe pagar un segundo sondeo.
 
-    Si no se puede determinar el códec, se transcodifica por seguridad
-    (garantiza compatibilidad aunque consuma más CPU).
+      - "remux"           -> video y audio ya compatibles (CPU ~0).
+      - "transcode_audio" -> video h264 OK pero audio incompatible (CPU baja).
+      - "transcode"       -> video incompatible o códec desconocido (CPU alta).
     """
-    video, audio = probe_codecs(stream_url)
-
     # No se pudo leer el códec -> transcode completo por seguridad.
-    if video is None and audio is None:
+    if video_codec is None and audio_codec is None:
         return "transcode"
 
     # Video incompatible -> hay que recodificar el video (lo más caro).
-    if video not in WEB_COMPATIBLE_VIDEO:
+    if video_codec not in WEB_COMPATIBLE_VIDEO:
         return "transcode"
 
     # Video ya es h264. Si el audio también es compatible (o no hay audio),
     # basta un remux. Si solo el audio molesta, se recodifica solo el audio.
-    if audio is None or audio in WEB_COMPATIBLE_AUDIO:
+    if audio_codec is None or audio_codec in WEB_COMPATIBLE_AUDIO:
         return "remux"
     return "transcode_audio"
+
+
+def decide_mode(stream_url: str) -> str:
+    """
+    Sondea el códec del stream original y decide cómo procesarlo, gastando la
+    menor CPU posible. Si no se puede determinar el códec, transcodifica por
+    seguridad. Ver mode_from_codecs() para la tabla de decisión.
+    """
+    video, audio = probe_codecs(stream_url)
+    return mode_from_codecs(video, audio)
 
 
 def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:

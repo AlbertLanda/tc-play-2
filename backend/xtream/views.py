@@ -249,3 +249,181 @@ def live_proxy_url(request):
     except Exception as error:
         payload, http_status = build_error_response(error)
         return Response(payload, status=http_status)
+
+
+@api_view(["POST"])
+def live_stop_proxy(request):
+    """
+    Detiene el proceso FFmpeg asociado a un stream_id de Xtream y borra su
+    salida HLS, para que un canal cerrado no deje procesos vivos ni carpetas
+    muertas reutilizables. Equivalente al stop-proxy de Astra.
+    """
+    stream_id = request.data.get("stream_id")
+
+    if not stream_id:
+        return Response(
+            {
+                "success": False,
+                "error_code": "missing_stream_id",
+                "message": "El campo stream_id es obligatorio.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        safe_stream_id = transcoder.sanitize_stream_id(stream_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_stream_id",
+                "message": "El stream_id enviado no es válido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        stopped = transcoder.stop_hls_transcode(safe_stream_id)
+        # Se borra también la salida HLS: si quedara un index.m3u8 "fresco",
+        # un proxy-url inmediato lo reutilizaría aunque ya no haya proceso.
+        output_removed = transcoder.remove_hls_output(safe_stream_id)
+
+        return Response({
+            "success": True,
+            "stream_id": safe_stream_id,
+            "stopped": stopped,
+            "output_removed": output_removed,
+        })
+
+    except Exception:
+        return Response(
+            {
+                "success": False,
+                "error_code": "unexpected_error",
+                "message": "Ocurrió un error inesperado al detener el proxy.",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["GET"])
+def live_proxy_status(request):
+    """
+    Devuelve el estado global del transcoder: procesos FFmpeg activos, límite
+    configurado y salidas HLS detectadas. Solo datos de monitoreo; nunca
+    URLs de origen, usuarios ni contraseñas.
+    """
+    try:
+        transcoder_status = transcoder.get_transcoder_status()
+
+        return Response({
+            "success": True,
+            **transcoder_status,
+        })
+
+    except Exception:
+        return Response(
+            {
+                "success": False,
+                "error_code": "unexpected_error",
+                "message": "Ocurrió un error inesperado al consultar el estado.",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["POST"])
+def live_diagnose_stream(request):
+    """
+    Diagnóstico técnico de un canal Xtream: construye la URL del stream con
+    las credenciales enviadas, la sondea con ffprobe y devuelve los códecs,
+    la compatibilidad web y el modo de procesamiento recomendado.
+
+    Ayuda a entender por qué un canal reproduce directo y otro necesita
+    transcode. La URL con credenciales NUNCA se devuelve.
+    """
+    username = request.data.get("username")
+    password = request.data.get("password")
+    stream_id = request.data.get("stream_id")
+    output = request.data.get("output", "m3u8")
+
+    if not username or not password:
+        return Response(
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario y contraseña son obligatorios.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not stream_id:
+        return Response(
+            {
+                "success": False,
+                "error_code": "missing_stream_id",
+                "message": "El campo stream_id es obligatorio.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        safe_stream_id = transcoder.sanitize_stream_id(stream_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_stream_id",
+                "message": "El stream_id enviado no es válido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # ffprobe es parte del paquete de FFmpeg; si no está, no hay diagnóstico.
+    if not transcoder.is_ffmpeg_available():
+        return Response(
+            {
+                "success": False,
+                "error_code": "ffmpeg_not_available",
+                "message": "FFmpeg/ffprobe no está disponible.",
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    try:
+        client = XtreamClient()
+        stream_url = client.build_live_stream_url(
+            username=username,
+            password=password,
+            stream_id=safe_stream_id,
+            output=output,
+        )
+
+        # Sin XTREAM_BASE_URL la URL sale incompleta y ffprobe fallaría.
+        if not stream_url.lower().startswith(("http://", "https://")):
+            return Response(
+                {
+                    "success": False,
+                    "error_code": "stream_url_error",
+                    "message": "No se pudo construir la URL del stream.",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # Un solo sondeo con ffprobe; el modo se decide sobre esos códecs.
+        video_codec, audio_codec = transcoder.probe_codecs(stream_url)
+        web_compatible = transcoder.is_web_compatible(video_codec, audio_codec)
+        recommended_mode = transcoder.mode_from_codecs(video_codec, audio_codec)
+
+        return Response({
+            "success": True,
+            "stream_id": safe_stream_id,
+            "video_codec": video_codec,
+            "audio_codec": audio_codec,
+            "web_compatible": web_compatible,
+            "recommended_mode": recommended_mode,
+        })
+
+    except Exception as error:
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
