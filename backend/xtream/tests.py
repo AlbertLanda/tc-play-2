@@ -409,3 +409,214 @@ class TranscoderLifecycleTests(SimpleTestCase):
             self.assertFalse(huerfana.exists())
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+# --- Día 8: control de procesos y diagnóstico de canales Xtream -----------
+
+class LiveStopProxyTests(APITestCase):
+    """POST /api/xtream/live/stop-proxy/ (detener + borrar salida HLS)."""
+
+    def setUp(self):
+        self.url = reverse("live_stop_proxy")
+
+    def test_stream_id_faltante_devuelve_400(self):
+        response = self.client.post(self.url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "missing_stream_id")
+
+    def test_stream_id_invalido_devuelve_400(self):
+        response = self.client.post(
+            self.url, {"stream_id": "../../etc"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "invalid_stream_id")
+
+    @patch("xtream.views.transcoder.remove_hls_output", return_value=True)
+    @patch("xtream.views.transcoder.stop_hls_transcode", return_value=True)
+    def test_detiene_proceso_existente(self, mock_stop, mock_remove):
+        response = self.client.post(self.url, {"stream_id": 41}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertTrue(response.data["stopped"])
+        self.assertTrue(response.data["output_removed"])
+        self.assertEqual(response.data["stream_id"], "41")
+        mock_stop.assert_called_once_with("41")
+        mock_remove.assert_called_once_with("41")
+
+    @patch("xtream.views.transcoder.remove_hls_output", return_value=False)
+    @patch("xtream.views.transcoder.stop_hls_transcode", return_value=False)
+    def test_sin_proceso_activo_responde_stopped_false(self, mock_stop, mock_remove):
+        response = self.client.post(self.url, {"stream_id": 999}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertFalse(response.data["stopped"])
+        self.assertFalse(response.data["output_removed"])
+
+
+class LiveProxyStatusTests(APITestCase):
+    """GET /api/xtream/live/proxy-status/ (monitoreo del transcoder)."""
+
+    def setUp(self):
+        self.url = reverse("live_proxy_status")
+
+    @patch("xtream.views.transcoder.get_transcoder_status")
+    def test_devuelve_estado_del_transcoder(self, mock_status):
+        mock_status.return_value = {
+            "active_processes": 1,
+            "max_concurrent": 5,
+            "outputs": [
+                {
+                    "stream_id": "41",
+                    "process_alive": True,
+                    "index_exists": True,
+                    "index_age_seconds": 2.5,
+                    "index_size_bytes": 350,
+                    "segments": 6,
+                    "damaged": False,
+                }
+            ],
+        }
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["active_processes"], 1)
+        self.assertEqual(response.data["max_concurrent"], 5)
+        self.assertEqual(response.data["outputs"][0]["stream_id"], "41")
+
+    def test_solo_acepta_get(self):
+        response = self.client.post(self.url, {}, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+
+
+class LiveDiagnoseStreamTests(APITestCase):
+    """POST /api/xtream/live/diagnose-stream/ (códecs + modo recomendado)."""
+
+    def setUp(self):
+        self.url = reverse("live_diagnose_stream")
+        self.payload = {
+            "username": "cliente.demo",
+            "password": "cualquiera",
+            "stream_id": 41,
+            "output": "m3u8",
+        }
+
+    def test_credenciales_faltantes_devuelve_400(self):
+        response = self.client.post(
+            self.url, {"stream_id": 41}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "missing_credentials")
+
+    def test_stream_id_faltante_devuelve_400(self):
+        response = self.client.post(
+            self.url,
+            {"username": "x", "password": "y"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "missing_stream_id")
+
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=False)
+    def test_ffmpeg_no_disponible_devuelve_503(self, _mock_ffmpeg):
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        self.assertEqual(response.data["error_code"], "ffmpeg_not_available")
+
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_url_invalida_devuelve_502(self, mock_client, _mock_ffmpeg):
+        """URL sin http (XTREAM_BASE_URL vacío) -> stream_url_error (502)."""
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "/live/cliente.demo/cualquiera/41.m3u8"
+        )
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["error_code"], "stream_url_error")
+
+    @patch("xtream.views.transcoder.probe_codecs", return_value=("h264", "aac"))
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_diagnostico_exitoso_remux(self, mock_client, _mock_ffmpeg, _mock_probe):
+        """h264 + aac -> web_compatible true y recommended_mode remux."""
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "http://servidor/live/cliente.demo/cualquiera/41.m3u8"
+        )
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["stream_id"], "41")
+        self.assertEqual(response.data["video_codec"], "h264")
+        self.assertEqual(response.data["audio_codec"], "aac")
+        self.assertTrue(response.data["web_compatible"])
+        self.assertEqual(response.data["recommended_mode"], "remux")
+
+    @patch("xtream.views.transcoder.probe_codecs", return_value=("hevc", "ac3"))
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_diagnostico_incompatible_transcode(
+        self, mock_client, _mock_ffmpeg, _mock_probe
+    ):
+        """hevc + ac3 -> web_compatible false y recommended_mode transcode."""
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "http://servidor/live/cliente.demo/cualquiera/41.m3u8"
+        )
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["web_compatible"])
+        self.assertEqual(response.data["recommended_mode"], "transcode")
+
+    @patch("xtream.views.transcoder.probe_codecs", return_value=("h264", "aac"))
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_no_filtra_credenciales(self, mock_client, _mock_ffmpeg, _mock_probe):
+        """La respuesta de diagnóstico no debe exponer password ni la URL."""
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "http://servidor/live/cliente.demo/cualquiera/41.m3u8"
+        )
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        cuerpo = str(response.data)
+        self.assertNotIn("cualquiera", cuerpo)   # password
+        self.assertNotIn("/live/", cuerpo)       # ruta con credenciales
+
+
+class ModeFromCodecsTests(SimpleTestCase):
+    """Decisión de modo a partir de códecs ya sondeados (sin ffprobe)."""
+
+    def test_h264_aac_es_remux(self):
+        self.assertEqual(transcoder.mode_from_codecs("h264", "aac"), "remux")
+
+    def test_h264_sin_audio_es_remux(self):
+        self.assertEqual(transcoder.mode_from_codecs("h264", None), "remux")
+
+    def test_h264_audio_incompatible_es_transcode_audio(self):
+        self.assertEqual(
+            transcoder.mode_from_codecs("h264", "mp2"), "transcode_audio"
+        )
+
+    def test_video_incompatible_es_transcode(self):
+        self.assertEqual(transcoder.mode_from_codecs("hevc", "aac"), "transcode")
+
+    def test_codec_desconocido_es_transcode(self):
+        self.assertEqual(transcoder.mode_from_codecs(None, None), "transcode")

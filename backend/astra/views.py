@@ -162,3 +162,85 @@ def astra_proxy_url(request):
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+@api_view(["POST"])
+def astra_stop_proxy(request):
+    """
+    Detiene el proceso FFmpeg asociado a un channel_id de Astra y borra su
+    salida HLS para que no se reutilice una carpeta muerta. Pensado para
+    que el frontend cierre el canal anterior al hacer zapping y no se
+    acumulen procesos.
+    """
+    channel_id = request.data.get("channel_id")
+
+    if not channel_id:
+        return Response(
+            {
+                "success": False,
+                "error_code": "missing_channel_id",
+                "message": "El campo channel_id es obligatorio.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        safe_channel_id = transcoder.sanitize_stream_id(channel_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_channel_id",
+                "message": "El channel_id enviado no es válido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        stopped = transcoder.stop_hls_transcode(safe_channel_id)
+        # Se borra también la salida HLS: si quedara un index.m3u8 "fresco",
+        # un proxy-url inmediato lo reutilizaría aunque ya no haya proceso.
+        output_removed = transcoder.remove_hls_output(safe_channel_id)
+
+        return Response({
+            "success": True,
+            "channel_id": safe_channel_id,
+            "stopped": stopped,
+            "output_removed": output_removed,
+        })
+
+    except Exception:
+        return Response(
+            {
+                "success": False,
+                "error_code": "unexpected_error",
+                "message": "Ocurrió un error inesperado al detener el proxy Astra.",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["GET"])
+def astra_proxy_status(request):
+    """
+    Devuelve el estado del transcoder: procesos FFmpeg activos, límite
+    configurado y salidas HLS detectadas en disco. Solo datos de
+    monitoreo; nunca URLs de origen ni credenciales.
+    """
+    try:
+        transcoder_status = transcoder.get_transcoder_status()
+
+        return Response({
+            "success": True,
+            **transcoder_status,
+        })
+
+    except Exception:
+        return Response(
+            {
+                "success": False,
+                "error_code": "unexpected_error",
+                "message": "Ocurrió un error inesperado al consultar el estado.",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )

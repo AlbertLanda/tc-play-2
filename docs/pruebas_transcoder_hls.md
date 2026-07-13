@@ -4,6 +4,11 @@ Registro de pruebas del endpoint `POST /api/xtream/live/proxy-url/`.
 
 > No se colocan usuarios, contraseñas ni URLs reales en este documento.
 
+> ℹ️ **Control de procesos (Día 7):** los endpoints de detención y estado
+> del transcoder para canales Astra (`stop-proxy`, `proxy-status`) y sus
+> pruebas están documentados aparte en
+> [`astra_control_procesos.md`](astra_control_procesos.md).
+
 ## 1. Entorno
 
 - FFmpeg: `ffmpeg version 2026-04-09-git-d3d0b7a5ee-full_build www.gyan.dev`
