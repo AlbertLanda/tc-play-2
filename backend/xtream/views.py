@@ -219,6 +219,9 @@ def live_proxy_url(request):
         )
 
         if not reused and not transcoder.wait_for_hls_index(safe_stream_id):
+            transcoder.stop_hls_transcode(safe_stream_id)
+            transcoder.remove_hls_output(safe_stream_id)
+
             return Response(
                 {
                     "success": False,
