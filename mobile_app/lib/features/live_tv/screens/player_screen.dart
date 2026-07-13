@@ -46,31 +46,72 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _initializePlayer(String url) async {
+
+    print('=================================');
+    print('ENTRO A INIT PLAYER');
+    print('URL RECIBIDA: $url');
+    print('=================================');
+
+    print('ENTRO A INIT PLAYER');
+    print('STREAM URL: $url');
+
     try {
-      setState(() {
-        _isInitializingPlayer = true;
-        _playerError = false;
+      await _videoPlayerController?.dispose();
+      _videoPlayerController = null;
+
+      if (mounted) {
+        setState(() {
+          _isInitializingPlayer = true;
+          _playerError = false;
+        });
+      }
+
+      _videoPlayerController = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        videoPlayerOptions: VideoPlayerOptions(
+          mixWithOthers: true,
+        ),
+      );
+
+      _videoPlayerController!.addListener(() {
+        final controller = _videoPlayerController!;
+
+        if (controller.value.hasError) {
+          print(
+            'VIDEO ERROR: ${controller.value.errorDescription}',
+          );
+        }
       });
 
-      _videoPlayerController =
-          VideoPlayerController.networkUrl(Uri.parse(url));
-
       await _videoPlayerController!.initialize();
-      await _videoPlayerController!.play();
+
+      if (_videoPlayerController!.value.isInitialized){
+        await _videoPlayerController!.play();
+      }
 
       if (mounted) {
         setState(() {
           _isInitializingPlayer = false;
         });
       }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _isInitializingPlayer = false;
-          _playerError = true;
-        });
+
+    } catch (e, stackTrace) {
+        print('=================================');
+        print('ERROR VIDEO PLAYER');
+        print(e);
+        print(stackTrace);
+        print('=================================');
+
+        await _videoPlayerController?.dispose();
+        _videoPlayerController = null;
+
+        if (mounted) {
+          setState(() {
+            _isInitializingPlayer = false;
+            _playerError = true;
+          });
+        }
       }
-    }
   }
 
   @override
@@ -80,7 +121,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _refresh() async {
+    await _videoPlayerController?.dispose();
+    _videoPlayerController = null;
+
     setState(() {
+      _playerError = false;
+      _isInitializingPlayer = false;
+
       _streamUrl = _service.getStreamUrl(
         username: widget.username,
         password: widget.password,
@@ -103,6 +150,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       body: FutureBuilder<String>(
         future: _streamUrl,
         builder: (context, snapshot) {
+
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
               child: CircularProgressIndicator(
@@ -112,23 +160,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
 
           if (snapshot.hasError) {
+            print('ERROR STREAM: ${snapshot.error}');
+
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+
                   const Icon(
                     Icons.error_outline,
                     color: Colors.red,
                     size: 50,
                   ),
+
                   const SizedBox(height: 16),
+
                   const Text(
                     'No se pudo cargar el canal.',
                     style: TextStyle(
                       color: AppColors.white,
                     ),
                   ),
+
                   const SizedBox(height: 16),
+
                   ElevatedButton.icon(
                     onPressed: _refresh,
                     icon: const Icon(Icons.refresh),
@@ -139,13 +194,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
             );
           }
 
+
           final streamUrl = snapshot.data!;
 
-          if (_videoPlayerController == null && !_isInitializingPlayer) {
+          print('=================================');
+          print('STREAM URL DEL FUTURE');
+          print(streamUrl);
+          print('=================================');
+
+          print('STREAM URL DEL FUTURE: $streamUrl');
+
+
+          if (_videoPlayerController == null &&
+              !_isInitializingPlayer &&
+              !_playerError) {
+
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _initializePlayer(streamUrl);
             });
           }
+
 
           if (_isInitializingPlayer) {
             return const Center(
@@ -155,24 +223,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
             );
           }
 
+
           if (_playerError) {
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+
                   const Icon(
                     Icons.error_outline,
                     color: Colors.red,
                     size: 50,
                   ),
+
                   const SizedBox(height: 16),
+
                   const Text(
                     'No se pudo reproducir el canal.',
                     style: TextStyle(
                       color: AppColors.white,
                     ),
                   ),
+
                   const SizedBox(height: 16),
+
                   ElevatedButton(
                     onPressed: () {
                       _initializePlayer(streamUrl);
@@ -184,15 +258,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
             );
           }
 
+
           if (_videoPlayerController != null &&
               _videoPlayerController!.value.isInitialized) {
+
             return Center(
               child: AspectRatio(
-                aspectRatio: _videoPlayerController!.value.aspectRatio,
-                child: VideoPlayer(_videoPlayerController!),
+                aspectRatio:
+                    _videoPlayerController!.value.aspectRatio,
+                child: VideoPlayer(
+                  _videoPlayerController!,
+                ),
               ),
             );
           }
+
 
           return const Center(
             child: CircularProgressIndicator(

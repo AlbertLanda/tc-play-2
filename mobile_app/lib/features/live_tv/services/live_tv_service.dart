@@ -4,9 +4,9 @@ import 'package:http/http.dart' as http;
 
 import '../models/live_category.dart';
 import '../models/live_channel.dart';
+import '../../../core/constants/api_constants.dart';
 
 class LiveTvService {
-  static const String _baseUrl = 'http://127.0.0.1:8000';
 
   /// Categorías reales
   Future<List<LiveCategory>> getCategories({
@@ -14,7 +14,7 @@ class LiveTvService {
     required String password,
   }) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/xtream/live/categories/'),
+      Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/categories/'),
       headers: {
         'Content-Type': 'application/json',
       },
@@ -48,7 +48,7 @@ class LiveTvService {
     required String categoryId,
   }) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/xtream/live/streams/'),
+      Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/streams/'),
       headers: {
         'Content-Type': 'application/json',
       },
@@ -84,7 +84,7 @@ class LiveTvService {
     String output = 'm3u8',
   }) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/xtream/live/stream-url/'),
+      Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/stream-url/'),
       headers: {
         'Content-Type': 'application/json',
       },
@@ -97,6 +97,7 @@ class LiveTvService {
     );
 
     final data = jsonDecode(response.body);
+    
 
     if (response.statusCode != 200 || data['success'] != true) {
       throw Exception(
@@ -140,5 +141,39 @@ class LiveTvService {
         },
       ],
     };
+  }
+
+  Future<String> getProxyStreamUrl({
+    required String username,
+    required String password,
+    required int streamId,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/proxy-url/'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'username': username,
+        'password': password,
+        'stream_id': streamId.toString(),
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+
+    print('=================================');
+    print('RESPUESTA DEL BACKEND');
+    print(data);
+    print('URL DEL STREAM: ${data['stream_url']}');
+    print('=================================');
+
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(
+        data['message'] ?? 'No se pudo generar el proxy del canal.',
+      );
+    }
+
+    return data['hls_url'].toString();
   }
 }
