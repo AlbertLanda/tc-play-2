@@ -4,9 +4,10 @@ import 'package:http/http.dart' as http;
 
 import '../models/live_category.dart';
 import '../models/live_channel.dart';
+import '../../../core/constants/api_constants.dart';
 
 class LiveTvService {
-  static const String _baseUrl = 'http://127.0.0.1:8000';
+  static const String _baseUrl = 'http://192.168.42.118:8000';
 
   /// Categorías reales
   Future<List<LiveCategory>> getCategories({
@@ -14,7 +15,7 @@ class LiveTvService {
     required String password,
   }) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/xtream/live/categories/'),
+      Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/categories/'),
       headers: {
         'Content-Type': 'application/json',
       },
@@ -48,7 +49,7 @@ class LiveTvService {
     required String categoryId,
   }) async {
     final response = await http.post(
-      Uri.parse('$_baseUrl/api/xtream/live/streams/'),
+      Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/streams/'),
       headers: {
         'Content-Type': 'application/json',
       },
