@@ -335,6 +335,47 @@ def live_proxy_status(request):
         )
 
 
+@api_view(["GET"])
+def live_hls_status(request, stream_id):
+    """
+    Diagnóstico de la salida HLS generada por el backend para un stream_id.
+
+    Informa si existe index.m3u8, su tamaño, la cantidad de segmentos .ts,
+    si la salida está dañada y si el proceso FFmpeg sigue vivo. Sirve para
+    diferenciar un canal que falla por HLS incompleto de uno cuyo proceso
+    murió. No expone usuario, contraseña ni la URL original del stream.
+    """
+    try:
+        safe_stream_id = transcoder.sanitize_stream_id(stream_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_stream_id",
+                "message": "El stream_id enviado no es válido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        hls_status = transcoder.get_hls_status(safe_stream_id)
+
+        return Response({
+            "success": True,
+            **hls_status,
+        })
+
+    except Exception:
+        return Response(
+            {
+                "success": False,
+                "error_code": "unexpected_error",
+                "message": "Ocurrió un error inesperado al consultar el estado HLS.",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
 @api_view(["POST"])
 def live_diagnose_stream(request):
     """

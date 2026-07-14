@@ -252,6 +252,34 @@ def get_transcoder_status() -> dict:
     }
 
 
+def get_hls_status(stream_id: str) -> dict:
+    """
+    Estado de la salida HLS de UN stream_id, para el endpoint de diagnóstico
+    hls-status. Informa si existe el index, su tamaño, cuántos segmentos hay,
+    si la salida está dañada y si el proceso FFmpeg sigue vivo.
+
+    No expone usuario, contraseña ni la URL original del stream.
+    """
+    folder = _hls_dir(stream_id)
+    index = _index_path(stream_id)
+    index_exists = index.exists()
+    index_size = index.stat().st_size if index_exists else 0
+    segments = len(list(folder.glob("*.ts"))) if folder.exists() else 0
+
+    with _lock:
+        process = _processes.get(stream_id)
+    process_alive = process is not None and process.poll() is None
+
+    return {
+        "stream_id": stream_id,
+        "index_exists": index_exists,
+        "index_size_bytes": index_size,
+        "segments": segments,
+        "damaged": is_hls_output_damaged(stream_id),
+        "process_alive": process_alive,
+    }
+
+
 def probe_codecs(stream_url: str):
     """
     Lee el códec de video y audio del stream ORIGINAL con ffprobe, sin
@@ -306,6 +334,15 @@ def mode_from_codecs(video_codec, audio_codec) -> str:
     if video_codec is None and audio_codec is None:
         return "transcode"
 
+    # Stream de SOLO AUDIO (radios): no hay video que recodificar, así que
+    # NO debe caer en "transcode" (forzaría libx264 sobre algo sin video y
+    # FFmpeg fallaría). Se decide solo por el audio: remux si ya es
+    # compatible, transcode_audio si hay que convertirlo a AAC.
+    if video_codec is None and audio_codec is not None:
+        if audio_codec in WEB_COMPATIBLE_AUDIO:
+            return "remux"
+        return "transcode_audio"
+
     # Video incompatible -> hay que recodificar el video (lo más caro).
     if video_codec not in WEB_COMPATIBLE_VIDEO:
         return "transcode"
@@ -334,6 +371,8 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
 
     - mode "remux": -c copy (no recodifica, consumo mínimo).
     - mode "transcode_audio": copia el video y recodifica solo el audio a AAC.
+      (En streams de solo audio, -c:v copy no tiene video que copiar y la
+       salida queda solo con el audio ya convertido a AAC.)
     - mode "transcode": recodifica video a H.264 y audio a AAC.
     """
     ffmpeg_bin = getattr(settings, "FFMPEG_BIN", "ffmpeg")
@@ -344,10 +383,13 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
     elif mode == "transcode_audio":
         command += ["-c:v", "copy", "-c:a", "aac"]
     else:
+        # -pix_fmt yuv420p: el decoder de hardware de Android (ExoPlayer)
+        # rechaza formatos como yuv422p o 10-bit; se fuerza 4:2:0 8-bit.
         command += [
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-tune", "zerolatency",
+            "-pix_fmt", "yuv420p",
             "-c:a", "aac",
         ]
 
