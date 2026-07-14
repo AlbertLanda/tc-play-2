@@ -38,7 +38,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
 
-    _streamUrl = _service.getStreamUrl(
+    _streamUrl = _service.getProxyStreamUrl(
       username: widget.username,
       password: widget.password,
       streamId: widget.streamId,
@@ -128,7 +128,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _playerError = false;
       _isInitializingPlayer = false;
 
-      _streamUrl = _service.getStreamUrl(
+      _streamUrl = _service.getProxyStreamUrl(
         username: widget.username,
         password: widget.password,
         streamId: widget.streamId,

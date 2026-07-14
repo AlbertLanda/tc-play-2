@@ -165,7 +165,7 @@ class LiveTvService {
     print('=================================');
     print('RESPUESTA DEL BACKEND');
     print(data);
-    print('URL DEL STREAM: ${data['stream_url']}');
+    print('URL HLS DEL PROXY: ${data['hls_url']}');
     print('=================================');
 
     if (response.statusCode != 200 || data['success'] != true) {
