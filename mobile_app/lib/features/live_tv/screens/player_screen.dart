@@ -47,10 +47,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _initializePlayer(String url) async {
 
-    debugPrint('URL RECIBIDA: $url');
-
-    debugPrint('STREAM URL: $url');
-
     try {
       await _videoPlayerController?.dispose();
       _videoPlayerController = null;
@@ -91,10 +87,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         });
       }
 
-    } catch (e, stackTrace) {
+    } catch (e) {
 
-        debugPrint(e.toString());
-        debugPrint(stackTrace.toString());
 
         await _videoPlayerController?.dispose();
         _videoPlayerController = null;
@@ -154,7 +148,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
 
           if (snapshot.hasError) {
-            debugPrint('ERROR STREAM: ${snapshot.error}');
 
             return Center(
               child: Column(
@@ -190,11 +183,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
 
           final streamUrl = snapshot.data!;
-
-          debugPrint(streamUrl);
-
-          debugPrint('STREAM URL DEL FUTURE: $streamUrl');
-
 
           if (_videoPlayerController == null &&
               !_isInitializingPlayer &&

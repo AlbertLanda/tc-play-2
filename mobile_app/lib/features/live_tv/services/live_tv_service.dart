@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/live_category.dart';
@@ -163,9 +162,6 @@ class LiveTvService {
     );
 
     final data = jsonDecode(response.body);
-
-    debugPrint(data);
-    debugPrint('URL HLS DEL PROXY: ${data['hls_url']}');
 
     if (response.statusCode != 200 || data['success'] != true) {
       throw Exception(
