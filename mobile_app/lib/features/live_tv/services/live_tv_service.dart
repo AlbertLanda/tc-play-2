@@ -148,7 +148,8 @@ class LiveTvService {
     required String username,
     required String password,
     required int streamId,
-  }) async {
+  }
+  ) async {
     final response = await http.post(
       Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/proxy-url/'),
       headers: {
@@ -171,4 +172,19 @@ class LiveTvService {
 
     return data['hls_url'].toString();
   }
+
+  Future<void> stopProxy({
+  required int streamId,
+}) async {
+  await http.post(
+    Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/stop-proxy/'),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: jsonEncode({
+      'stream_id': streamId.toString(),
+    }),
+  );
 }
+}
+

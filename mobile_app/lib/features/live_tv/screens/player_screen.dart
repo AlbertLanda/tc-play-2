@@ -105,6 +105,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _videoPlayerController?.dispose();
+
+    _service.stopProxy(
+      streamId: widget.streamId,
+    );
+    
     super.dispose();
   }
 
