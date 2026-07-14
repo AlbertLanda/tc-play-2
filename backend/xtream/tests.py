@@ -352,6 +352,11 @@ class TranscoderModeTests(SimpleTestCase):
         self.assertIn("libx264", cmd)
         self.assertNotIn("copy", cmd)
 
+    def test_build_command_transcode_fuerza_yuv420p(self):
+        """El modo transcode fuerza -pix_fmt yuv420p (compatibilidad Android)."""
+        cmd = transcoder._build_ffmpeg_command("http://x", "out.m3u8", "transcode")
+        self.assertEqual(cmd[cmd.index("-pix_fmt") + 1], "yuv420p")
+
 
 class TranscoderLifecycleTests(SimpleTestCase):
     """
@@ -620,3 +625,101 @@ class ModeFromCodecsTests(SimpleTestCase):
 
     def test_codec_desconocido_es_transcode(self):
         self.assertEqual(transcoder.mode_from_codecs(None, None), "transcode")
+
+    def test_solo_audio_compatible_es_remux(self):
+        """Radio (sin video) con audio aac -> remux, NO transcode (no libx264)."""
+        self.assertEqual(transcoder.mode_from_codecs(None, "aac"), "remux")
+
+    def test_solo_audio_incompatible_es_transcode_audio(self):
+        """
+        Radio (sin video) con audio incompatible (aac_latm/mp2) ->
+        transcode_audio: convierte el audio a AAC SIN forzar libx264 sobre
+        un stream que no tiene video (antes caía en transcode y FFmpeg fallaba).
+        """
+        self.assertEqual(
+            transcoder.mode_from_codecs(None, "aac_latm"), "transcode_audio"
+        )
+        self.assertEqual(
+            transcoder.mode_from_codecs(None, "mp2"), "transcode_audio"
+        )
+
+
+# --- Día 9: endpoint de diagnóstico HLS por stream_id ---------------------
+
+class HlsStatusHelperTests(SimpleTestCase):
+    """transcoder.get_hls_status(): estado de la salida HLS en disco."""
+
+    def test_sin_salida_reporta_vacio(self):
+        """Sin carpeta/index -> index_exists False, 0 segmentos, no vivo."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            with override_settings(HLS_ROOT=tmp):
+                data = transcoder.get_hls_status("777")
+
+            self.assertEqual(data["stream_id"], "777")
+            self.assertFalse(data["index_exists"])
+            self.assertEqual(data["index_size_bytes"], 0)
+            self.assertEqual(data["segments"], 0)
+            self.assertFalse(data["process_alive"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_con_salida_cuenta_segmentos(self):
+        """Con index.m3u8 y .ts -> index_exists True, tamaño y segmentos > 0."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            folder = tmp / "778"
+            folder.mkdir()
+            (folder / "index.m3u8").write_text("#EXTM3U")
+            (folder / "segment_000.ts").write_text("x")
+            (folder / "segment_001.ts").write_text("y")
+
+            with override_settings(HLS_ROOT=tmp):
+                data = transcoder.get_hls_status("778")
+
+            self.assertTrue(data["index_exists"])
+            self.assertGreater(data["index_size_bytes"], 0)
+            self.assertEqual(data["segments"], 2)
+            self.assertFalse(data["damaged"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class LiveHlsStatusEndpointTests(APITestCase):
+    """GET /api/xtream/live/hls-status/<stream_id>/."""
+
+    def test_stream_id_invalido_devuelve_400(self):
+        url = reverse("live_hls_status", args=["bad.id"])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "invalid_stream_id")
+
+    @patch("xtream.views.transcoder.get_hls_status")
+    def test_devuelve_estado_hls(self, mock_status):
+        mock_status.return_value = {
+            "stream_id": "71",
+            "index_exists": True,
+            "index_size_bytes": 273,
+            "segments": 6,
+            "damaged": False,
+            "process_alive": True,
+        }
+
+        url = reverse("live_hls_status", args=["71"])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["stream_id"], "71")
+        self.assertTrue(response.data["index_exists"])
+        self.assertEqual(response.data["segments"], 6)
+        self.assertTrue(response.data["process_alive"])
+
+    def test_solo_acepta_get(self):
+        url = reverse("live_hls_status", args=["71"])
+        response = self.client.post(url, {}, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
+        )
