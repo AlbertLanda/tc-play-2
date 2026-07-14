@@ -1,10 +1,12 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/live_category.dart';
 import '../models/live_channel.dart';
 import '../../../core/constants/api_constants.dart';
+
 
 class LiveTvService {
 
@@ -162,11 +164,8 @@ class LiveTvService {
 
     final data = jsonDecode(response.body);
 
-    print('=================================');
-    print('RESPUESTA DEL BACKEND');
-    print(data);
-    print('URL HLS DEL PROXY: ${data['hls_url']}');
-    print('=================================');
+    debugPrint(data);
+    debugPrint('URL HLS DEL PROXY: ${data['hls_url']}');
 
     if (response.statusCode != 200 || data['success'] != true) {
       throw Exception(

@@ -47,13 +47,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _initializePlayer(String url) async {
 
-    print('=================================');
-    print('ENTRO A INIT PLAYER');
-    print('URL RECIBIDA: $url');
-    print('=================================');
+    debugPrint('URL RECIBIDA: $url');
 
-    print('ENTRO A INIT PLAYER');
-    print('STREAM URL: $url');
+    debugPrint('STREAM URL: $url');
 
     try {
       await _videoPlayerController?.dispose();
@@ -77,7 +73,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final controller = _videoPlayerController!;
 
         if (controller.value.hasError) {
-          print(
+          debugPrint(
             'VIDEO ERROR: ${controller.value.errorDescription}',
           );
         }
@@ -96,11 +92,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
     } catch (e, stackTrace) {
-        print('=================================');
-        print('ERROR VIDEO PLAYER');
-        print(e);
-        print(stackTrace);
-        print('=================================');
+
+        debugPrint(e.toString());
+        debugPrint(stackTrace.toString());
 
         await _videoPlayerController?.dispose();
         _videoPlayerController = null;
@@ -160,7 +154,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
 
           if (snapshot.hasError) {
-            print('ERROR STREAM: ${snapshot.error}');
+            debugPrint('ERROR STREAM: ${snapshot.error}');
 
             return Center(
               child: Column(
@@ -197,12 +191,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
           final streamUrl = snapshot.data!;
 
-          print('=================================');
-          print('STREAM URL DEL FUTURE');
-          print(streamUrl);
-          print('=================================');
+          debugPrint(streamUrl);
 
-          print('STREAM URL DEL FUTURE: $streamUrl');
+          debugPrint('STREAM URL DEL FUTURE: $streamUrl');
 
 
           if (_videoPlayerController == null &&
