@@ -46,7 +46,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _initializePlayer(String url) async {
-
     try {
       await _videoPlayerController?.dispose();
       _videoPlayerController = null;
@@ -60,24 +59,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _videoPlayerController = VideoPlayerController.networkUrl(
         Uri.parse(url),
-        videoPlayerOptions: VideoPlayerOptions(
-          mixWithOthers: true,
-        ),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
       );
 
       _videoPlayerController!.addListener(() {
         final controller = _videoPlayerController!;
 
         if (controller.value.hasError) {
-          debugPrint(
-            'VIDEO ERROR: ${controller.value.errorDescription}',
-          );
+          debugPrint('VIDEO ERROR: ${controller.value.errorDescription}');
         }
       });
 
       await _videoPlayerController!.initialize();
 
-      if (_videoPlayerController!.value.isInitialized){
+      if (_videoPlayerController!.value.isInitialized) {
         await _videoPlayerController!.play();
       }
 
@@ -86,30 +81,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _isInitializingPlayer = false;
         });
       }
-
     } catch (e) {
+      await _videoPlayerController?.dispose();
+      _videoPlayerController = null;
 
-
-        await _videoPlayerController?.dispose();
-        _videoPlayerController = null;
-
-        if (mounted) {
-          setState(() {
-            _isInitializingPlayer = false;
-            _playerError = true;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          _isInitializingPlayer = false;
+          _playerError = true;
+        });
       }
+    }
   }
 
   @override
   void dispose() {
     _videoPlayerController?.dispose();
 
-    _service.stopProxy(
-      streamId: widget.streamId,
-    );
-    
+    _service.stopProxy(streamId: widget.streamId);
+
     super.dispose();
   }
 
@@ -143,35 +133,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
       body: FutureBuilder<String>(
         future: _streamUrl,
         builder: (context, snapshot) {
-
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(
-                color: AppColors.neonGreen,
-              ),
+              child: CircularProgressIndicator(color: AppColors.neonGreen),
             );
           }
 
           if (snapshot.hasError) {
-
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-
-                  const Icon(
-                    Icons.error_outline,
-                    color: Colors.red,
-                    size: 50,
-                  ),
+                  const Icon(Icons.error_outline, color: Colors.red, size: 50),
 
                   const SizedBox(height: 16),
 
                   const Text(
                     'No se pudo cargar el canal.',
-                    style: TextStyle(
-                      color: AppColors.white,
-                    ),
+                    style: TextStyle(color: AppColors.white),
                   ),
 
                   const SizedBox(height: 16),
@@ -186,47 +165,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
             );
           }
 
-
           final streamUrl = snapshot.data!;
 
           if (_videoPlayerController == null &&
               !_isInitializingPlayer &&
               !_playerError) {
-
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _initializePlayer(streamUrl);
             });
           }
 
-
           if (_isInitializingPlayer) {
             return const Center(
-              child: CircularProgressIndicator(
-                color: AppColors.neonGreen,
-              ),
+              child: CircularProgressIndicator(color: AppColors.neonGreen),
             );
           }
-
 
           if (_playerError) {
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-
-                  const Icon(
-                    Icons.error_outline,
-                    color: Colors.red,
-                    size: 50,
-                  ),
+                  const Icon(Icons.error_outline, color: Colors.red, size: 50),
 
                   const SizedBox(height: 16),
 
                   const Text(
                     'No se pudo reproducir el canal.',
-                    style: TextStyle(
-                      color: AppColors.white,
-                    ),
+                    style: TextStyle(color: AppColors.white),
                   ),
 
                   const SizedBox(height: 16),
@@ -242,26 +208,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
             );
           }
 
-
           if (_videoPlayerController != null &&
               _videoPlayerController!.value.isInitialized) {
-
             return Center(
               child: AspectRatio(
-                aspectRatio:
-                    _videoPlayerController!.value.aspectRatio,
-                child: VideoPlayer(
-                  _videoPlayerController!,
-                ),
+                aspectRatio: _videoPlayerController!.value.aspectRatio,
+                child: VideoPlayer(_videoPlayerController!),
               ),
             );
           }
 
-
           return const Center(
-            child: CircularProgressIndicator(
-              color: AppColors.neonGreen,
-            ),
+            child: CircularProgressIndicator(color: AppColors.neonGreen),
           );
         },
       ),
