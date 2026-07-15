@@ -195,7 +195,7 @@ class LiveProxyUrlTests(APITestCase):
         )
         self.assertEqual(response.data["error_code"], "ffmpeg_not_available")
 
-    @patch("xtream.views.transcoder.wait_for_hls_index", return_value=True)
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_proxy_exitoso(self, mock_start, mock_wait):
         """Éxito -> 200 con hls_url y el modo elegido (remux/transcode)."""
@@ -210,7 +210,7 @@ class LiveProxyUrlTests(APITestCase):
         self.assertEqual(response.data["mode"], "transcode")
         self.assertFalse(response.data["reused"])
 
-    @patch("xtream.views.transcoder.wait_for_hls_index", return_value=True)
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_no_filtra_credenciales(self, mock_start, mock_wait):
         """La respuesta no debe contener la contraseña ni la URL original."""
@@ -298,6 +298,43 @@ class LiveProxyUrlTests(APITestCase):
             response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR
         )
         self.assertEqual(response.data["error_code"], "transcoder_start_error")
+
+    @patch("xtream.views.transcoder.remove_hls_output")
+    @patch("xtream.views.transcoder.stop_hls_transcode")
+    @patch("xtream.views.transcoder.get_hls_status")
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=False)
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_hls_no_listo_limpia_y_devuelve_diagnostico(
+        self, mock_start, mock_wait, mock_status, mock_stop, mock_remove
+    ):
+        """
+        Si el HLS no queda listo a tiempo -> hls_not_ready (500) con el
+        detalle hls_status, y se limpia el proceso y la salida.
+        """
+        mock_start.return_value = ("123", False, "transcode")
+        mock_status.return_value = {
+            "stream_id": "123",
+            "index_exists": True,
+            "index_size_bytes": 271,
+            "segments": 0,
+            "min_segments_required": 2,
+            "ready": False,
+            "damaged": True,
+            "process_alive": False,
+        }
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+        self.assertEqual(response.data["error_code"], "hls_not_ready")
+        self.assertEqual(response.data["stream_id"], "123")
+        self.assertEqual(response.data["hls_status"]["segments"], 0)
+        self.assertFalse(response.data["hls_status"]["ready"])
+        # El diagnóstico se toma antes de limpiar; luego se detiene y borra.
+        mock_stop.assert_called_once_with("123")
+        mock_remove.assert_called_once_with("123")
 
 
 class TranscoderModeTests(SimpleTestCase):
@@ -681,6 +718,118 @@ class HlsStatusHelperTests(SimpleTestCase):
             self.assertGreater(data["index_size_bytes"], 0)
             self.assertEqual(data["segments"], 2)
             self.assertFalse(data["damaged"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ready_true_con_segmentos_suficientes(self):
+        """Con index + 2 segmentos (>= min) -> ready True y min_segments_required."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            folder = tmp / "779"
+            folder.mkdir()
+            (folder / "index.m3u8").write_text("#EXTM3U")
+            (folder / "segment_000.ts").write_text("x")
+            (folder / "segment_001.ts").write_text("y")
+
+            with override_settings(HLS_ROOT=tmp, HLS_MIN_SEGMENTS=2):
+                data = transcoder.get_hls_status("779")
+
+            self.assertEqual(data["min_segments_required"], 2)
+            self.assertTrue(data["ready"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ready_false_con_pocos_segmentos(self):
+        """Con index pero menos segmentos que el mínimo -> ready False."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            folder = tmp / "780"
+            folder.mkdir()
+            (folder / "index.m3u8").write_text("#EXTM3U")
+            (folder / "segment_000.ts").write_text("x")
+
+            with override_settings(HLS_ROOT=tmp, HLS_MIN_SEGMENTS=2):
+                data = transcoder.get_hls_status("780")
+
+            self.assertEqual(data["segments"], 1)
+            self.assertFalse(data["ready"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class WaitForHlsReadyTests(SimpleTestCase):
+    """
+    transcoder.wait_for_hls_ready(): la espera completa que exige index +
+    segmentos suficientes antes de dar el HLS por listo (Día 10).
+
+    Se trabaja sobre una carpeta temporal (HLS_ROOT) y sin proceso FFmpeg
+    registrado, por lo que los casos "no listos" agotan el timeout corto.
+    """
+
+    def _make_output(self, tmp, stream_id, index_content="#EXTM3U", segments=0):
+        folder = tmp / stream_id
+        folder.mkdir()
+        (folder / "index.m3u8").write_text(index_content)
+        for i in range(segments):
+            (folder / f"segment_{i:03d}.ts").write_text("x")
+        return folder
+
+    def test_false_si_no_existe_index(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "800", timeout_seconds=1, min_segments=2
+                )
+            self.assertFalse(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_false_si_index_vacio(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            self._make_output(tmp, "801", index_content="", segments=2)
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "801", timeout_seconds=1, min_segments=2
+                )
+            self.assertFalse(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_false_si_no_hay_segmentos(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            self._make_output(tmp, "802", segments=0)
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "802", timeout_seconds=1, min_segments=2
+                )
+            self.assertFalse(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_false_si_menos_segmentos_que_el_minimo(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            self._make_output(tmp, "803", segments=1)
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "803", timeout_seconds=1, min_segments=2
+                )
+            self.assertFalse(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_true_si_index_y_segmentos_suficientes(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            self._make_output(tmp, "804", segments=2)
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "804", timeout_seconds=2, min_segments=2
+                )
+            self.assertTrue(listo)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
