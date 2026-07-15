@@ -126,6 +126,9 @@ def wait_for_hls_index(stream_id: str, timeout_seconds: int = 8) -> bool:
     """
     Espera unos segundos a que FFmpeg genere el index.m3u8.
     Devuelve True si el archivo existe; False si no aparece dentro del tiempo.
+
+    Espera "ligera": solo mira el index. Para Android úsese
+    wait_for_hls_ready(), que además exige segmentos .ts suficientes.
     """
     index = _index_path(stream_id)
     deadline = time.time() + timeout_seconds
@@ -133,6 +136,61 @@ def wait_for_hls_index(stream_id: str, timeout_seconds: int = 8) -> bool:
     while time.time() < deadline:
         if index.exists() and index.stat().st_size > 0:
             return True
+        time.sleep(0.5)
+
+    return False
+
+
+def count_ts_segments(stream_id: str) -> int:
+    """Número de segmentos .ts en disco para un stream_id (0 si no hay carpeta)."""
+    folder = _hls_dir(stream_id)
+    if not folder.exists():
+        return 0
+    return len(list(folder.glob("*.ts")))
+
+
+def _hls_is_ready(stream_id: str, min_segments: int) -> bool:
+    """
+    True si la salida HLS ya es reproducible: index.m3u8 existe con tamaño
+    mayor a 0, no está dañada y hay al menos ``min_segments`` segmentos .ts.
+    """
+    index = _index_path(stream_id)
+    if not index.exists() or index.stat().st_size == 0:
+        return False
+    if is_hls_output_damaged(stream_id):
+        return False
+    return count_ts_segments(stream_id) >= min_segments
+
+
+def wait_for_hls_ready(
+    stream_id: str, timeout_seconds: int = 15, min_segments: int = 2
+) -> bool:
+    """
+    Espera a que la salida HLS esté REALMENTE lista para reproducirse en
+    Android, no solo a que aparezca el index.m3u8.
+
+    Devuelve True cuando, dentro de ``timeout_seconds``:
+        - index.m3u8 existe y pesa más de 0 bytes,
+        - la salida no está dañada,
+        - hay al menos ``min_segments`` segmentos .ts en disco.
+
+    Devuelve False si se agota el tiempo o si el proceso FFmpeg murió antes
+    de generar una salida usable (así no se espera en vano por un canal que
+    ya falló).
+    """
+    deadline = time.time() + timeout_seconds
+
+    while time.time() < deadline:
+        if _hls_is_ready(stream_id, min_segments):
+            return True
+
+        # Si el proceso FFmpeg ya terminó y la salida aún no está lista, no
+        # tiene sentido seguir esperando: el canal no va a producir más.
+        with _lock:
+            process = _processes.get(stream_id)
+        if process is not None and process.poll() is not None:
+            return _hls_is_ready(stream_id, min_segments)
+
         time.sleep(0.5)
 
     return False
@@ -265,17 +323,28 @@ def get_hls_status(stream_id: str) -> dict:
     index_exists = index.exists()
     index_size = index.stat().st_size if index_exists else 0
     segments = len(list(folder.glob("*.ts"))) if folder.exists() else 0
+    damaged = is_hls_output_damaged(stream_id)
 
     with _lock:
         process = _processes.get(stream_id)
     process_alive = process is not None and process.poll() is None
+
+    min_segments_required = getattr(settings, "HLS_MIN_SEGMENTS", 2)
+    ready = (
+        index_exists
+        and index_size > 0
+        and not damaged
+        and segments >= min_segments_required
+    )
 
     return {
         "stream_id": stream_id,
         "index_exists": index_exists,
         "index_size_bytes": index_size,
         "segments": segments,
-        "damaged": is_hls_output_damaged(stream_id),
+        "min_segments_required": min_segments_required,
+        "ready": ready,
+        "damaged": damaged,
         "process_alive": process_alive,
     }
 

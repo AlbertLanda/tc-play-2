@@ -218,15 +218,20 @@ def live_proxy_url(request):
             source_url, safe_stream_id
         )
 
-        if not reused and not transcoder.wait_for_hls_index(safe_stream_id):
+        if not reused and not transcoder.wait_for_hls_ready(safe_stream_id):
+            # Se captura el diagnóstico ANTES de limpiar, para explicar por qué
+            # no quedó listo (faltó index, segmentos, proceso vivo o dañado).
+            hls_status = transcoder.get_hls_status(safe_stream_id)
             transcoder.stop_hls_transcode(safe_stream_id)
             transcoder.remove_hls_output(safe_stream_id)
 
             return Response(
                 {
                     "success": False,
-                    "error_code": "hls_output_error",
-                    "message": "FFmpeg inició, pero no generó la salida HLS."
+                    "error_code": "hls_not_ready",
+                    "message": "El canal no generó segmentos HLS suficientes a tiempo.",
+                    "stream_id": safe_stream_id,
+                    "hls_status": hls_status,
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
