@@ -757,6 +757,131 @@ class HlsStatusHelperTests(SimpleTestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+# --- Día 11: distinguir HLS "listo" de HLS "vivo" -------------------------
+
+class ProcesoFalso:
+    """
+    Doble de subprocess.Popen. poll() devuelve None si el proceso sigue
+    corriendo, o un returncode si ya terminó.
+    """
+
+    def __init__(self, returncode=None):
+        self.returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+
+def _montar_salida_hls(root, stream_id, segmentos=7, edad_index=0.0):
+    """
+    Crea una salida HLS en disco y envejece el index.m3u8 ``edad_index``
+    segundos, para simular "FFmpeg dejó de escribir hace N segundos".
+    """
+    folder = Path(root) / stream_id
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "index.m3u8").write_text("#EXTM3U\n#EXT-X-VERSION:3\n")
+    for i in range(segmentos):
+        (folder / f"segment_{i:03d}.ts").write_text("x")
+
+    if edad_index:
+        marca = time.time() - edad_index
+        os.utime(folder / "index.m3u8", (marca, marca))
+    return folder
+
+
+class OutputLiveTests(SimpleTestCase):
+    """
+    transcoder.is_output_live(): decide por la antigüedad del index.m3u8,
+    NO por el registro _processes (que se pierde al reiniciar Django).
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        self.addCleanup(transcoder._processes.clear)
+
+    def test_live_true_con_index_fresco(self):
+        """Index reescrito hace 2s -> algo lo está escribiendo: live True."""
+        _montar_salida_hls(self.tmp, "800", edad_index=2)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertTrue(transcoder.is_output_live("800"))
+
+    def test_live_false_con_index_viejo(self):
+        """Index sin tocarse hace 45s -> nadie produce: live False."""
+        _montar_salida_hls(self.tmp, "801", edad_index=45)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertFalse(transcoder.is_output_live("801"))
+
+    def test_live_false_sin_salida(self):
+        """Sin carpeta ni index -> no hay nada vivo."""
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertFalse(transcoder.is_output_live("802"))
+
+    def test_live_false_si_salida_danada(self):
+        """Index fresco pero sin segmentos (playlist rota) -> live False."""
+        folder = self.tmp / "803"
+        folder.mkdir()
+        (folder / "index.m3u8").write_text("#EXTM3U")  # sin .ts
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertFalse(transcoder.is_output_live("803"))
+
+    def test_live_no_depende_del_registro_de_procesos(self):
+        """
+        Django reinició y _processes quedó vacío, pero FFmpeg sigue vivo y
+        refrescando el index. live debe seguir siendo True aunque
+        process_alive sea False: si no, se mataría un proceso sano.
+        """
+        _montar_salida_hls(self.tmp, "804", edad_index=1)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            data = transcoder.get_hls_status("804")
+
+        self.assertFalse(data["process_alive"])  # registro vacío
+        self.assertTrue(data["live"])            # el disco dice que sí
+
+    def test_index_age_seconds_refleja_antiguedad(self):
+        """index_age_seconds mide los segundos desde la última escritura."""
+        _montar_salida_hls(self.tmp, "805", edad_index=20)
+
+        with override_settings(HLS_ROOT=self.tmp):
+            edad = transcoder.get_index_age_seconds("805")
+
+        self.assertAlmostEqual(edad, 20, delta=2)
+
+    def test_index_age_seconds_none_sin_index(self):
+        """Sin index.m3u8 no hay antigüedad que medir -> None."""
+        with override_settings(HLS_ROOT=self.tmp):
+            self.assertIsNone(transcoder.get_index_age_seconds("806"))
+
+    def test_caso_rpp_ready_true_pero_live_false(self):
+        """
+        Caso RPP (stream_id 65) reportado por Joleydi: index y 7 segmentos en
+        disco, FFmpeg muerto. La salida es reproducible (ready=True) pero está
+        congelada (live=False): el player agota los segmentos y se detiene.
+
+        Este es el escenario que hls-status debe permitir distinguir.
+        """
+        _montar_salida_hls(self.tmp, "65", segmentos=7, edad_index=45)
+        transcoder._processes["65"] = ProcesoFalso(returncode=1)  # murió
+
+        with override_settings(
+            HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10, HLS_MIN_SEGMENTS=2
+        ):
+            data = transcoder.get_hls_status("65")
+
+        self.assertEqual(data["segments"], 7)
+        self.assertFalse(data["damaged"])
+        self.assertFalse(data["process_alive"])
+        self.assertTrue(data["ready"])   # hay contenido reproducible...
+        self.assertFalse(data["live"])   # ...pero ya no se renueva
+        self.assertGreater(data["index_age_seconds"], 10)
+        self.assertEqual(data["live_max_age_seconds"], 10)
+
+
 class WaitForHlsReadyTests(SimpleTestCase):
     """
     transcoder.wait_for_hls_ready(): la espera completa que exige index +
