@@ -222,6 +222,44 @@ def is_hls_output_damaged(stream_id: str) -> bool:
     return len(segments) == 0
 
 
+def get_index_age_seconds(stream_id: str):
+    """
+    Segundos transcurridos desde la última escritura del index.m3u8, o None
+    si no existe. FFmpeg reescribe la playlist cada vez que cierra un
+    segmento (~HLS_TIME), así que este número es la señal más fiable de si
+    la salida sigue recibiendo contenido nuevo.
+    """
+    index = _index_path(stream_id)
+    if not index.exists():
+        return None
+    return round(time.time() - index.stat().st_mtime, 1)
+
+
+def is_output_live(stream_id: str) -> bool:
+    """
+    True si la salida HLS sigue PRODUCIENDO contenido nuevo.
+
+    Se decide por la antigüedad del index.m3u8, no por el registro
+    _processes: ese registro vive en memoria del proceso de Django y se
+    pierde en cada reinicio, con lo que un FFmpeg perfectamente vivo
+    aparecería como muerto. El disco, en cambio, no miente: si el index se
+    refrescó hace poco, algo lo está escribiendo.
+
+    Una salida "listo pero muerto" (index y segmentos en disco, pero nadie
+    escribiendo) da ready=True y live=False: se puede reproducir lo ya
+    grabado, pero se congela al agotarlo.
+    """
+    if is_hls_output_damaged(stream_id):
+        return False
+
+    age = get_index_age_seconds(stream_id)
+    if age is None:
+        return False
+
+    ttl = getattr(settings, "HLS_ACTIVE_TTL_SECONDS", 30)
+    return age <= ttl
+
+
 def is_stream_active(stream_id: str) -> bool:
     """
     True si ya existe un HLS "vivo" para este stream_id: hay un proceso
@@ -314,7 +352,18 @@ def get_hls_status(stream_id: str) -> dict:
     """
     Estado de la salida HLS de UN stream_id, para el endpoint de diagnóstico
     hls-status. Informa si existe el index, su tamaño, cuántos segmentos hay,
-    si la salida está dañada y si el proceso FFmpeg sigue vivo.
+    si la salida está dañada y si sigue generándose contenido nuevo.
+
+    Distingue dos cosas que NO son lo mismo (Día 11):
+        - ready: hay contenido reproducible en disco.
+        - live:  ese contenido se sigue renovando.
+    Un canal congelado da ready=True + live=False: el player reproduce los
+    segmentos que quedaron y se detiene al agotarlos.
+
+    Ojo con process_alive: es solo una PISTA. El registro _processes vive en
+    memoria y se pierde al reiniciar Django, así que un FFmpeg vivo puede
+    reportarse como process_alive=False. Para decidir si la salida sirve,
+    usar live.
 
     No expone usuario, contraseña ni la URL original del stream.
     """
@@ -341,9 +390,12 @@ def get_hls_status(stream_id: str) -> dict:
         "stream_id": stream_id,
         "index_exists": index_exists,
         "index_size_bytes": index_size,
+        "index_age_seconds": get_index_age_seconds(stream_id),
         "segments": segments,
         "min_segments_required": min_segments_required,
         "ready": ready,
+        "live": is_output_live(stream_id),
+        "live_max_age_seconds": getattr(settings, "HLS_ACTIVE_TTL_SECONDS", 30),
         "damaged": damaged,
         "process_alive": process_alive,
     }
