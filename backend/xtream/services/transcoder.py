@@ -126,6 +126,9 @@ def wait_for_hls_index(stream_id: str, timeout_seconds: int = 8) -> bool:
     """
     Espera unos segundos a que FFmpeg genere el index.m3u8.
     Devuelve True si el archivo existe; False si no aparece dentro del tiempo.
+
+    Espera "ligera": solo mira el index. Para Android úsese
+    wait_for_hls_ready(), que además exige segmentos .ts suficientes.
     """
     index = _index_path(stream_id)
     deadline = time.time() + timeout_seconds
@@ -133,6 +136,61 @@ def wait_for_hls_index(stream_id: str, timeout_seconds: int = 8) -> bool:
     while time.time() < deadline:
         if index.exists() and index.stat().st_size > 0:
             return True
+        time.sleep(0.5)
+
+    return False
+
+
+def count_ts_segments(stream_id: str) -> int:
+    """Número de segmentos .ts en disco para un stream_id (0 si no hay carpeta)."""
+    folder = _hls_dir(stream_id)
+    if not folder.exists():
+        return 0
+    return len(list(folder.glob("*.ts")))
+
+
+def _hls_is_ready(stream_id: str, min_segments: int) -> bool:
+    """
+    True si la salida HLS ya es reproducible: index.m3u8 existe con tamaño
+    mayor a 0, no está dañada y hay al menos ``min_segments`` segmentos .ts.
+    """
+    index = _index_path(stream_id)
+    if not index.exists() or index.stat().st_size == 0:
+        return False
+    if is_hls_output_damaged(stream_id):
+        return False
+    return count_ts_segments(stream_id) >= min_segments
+
+
+def wait_for_hls_ready(
+    stream_id: str, timeout_seconds: int = 15, min_segments: int = 2
+) -> bool:
+    """
+    Espera a que la salida HLS esté REALMENTE lista para reproducirse en
+    Android, no solo a que aparezca el index.m3u8.
+
+    Devuelve True cuando, dentro de ``timeout_seconds``:
+        - index.m3u8 existe y pesa más de 0 bytes,
+        - la salida no está dañada,
+        - hay al menos ``min_segments`` segmentos .ts en disco.
+
+    Devuelve False si se agota el tiempo o si el proceso FFmpeg murió antes
+    de generar una salida usable (así no se espera en vano por un canal que
+    ya falló).
+    """
+    deadline = time.time() + timeout_seconds
+
+    while time.time() < deadline:
+        if _hls_is_ready(stream_id, min_segments):
+            return True
+
+        # Si el proceso FFmpeg ya terminó y la salida aún no está lista, no
+        # tiene sentido seguir esperando: el canal no va a producir más.
+        with _lock:
+            process = _processes.get(stream_id)
+        if process is not None and process.poll() is not None:
+            return _hls_is_ready(stream_id, min_segments)
+
         time.sleep(0.5)
 
     return False
@@ -146,11 +204,69 @@ def build_hls_url(request, stream_id: str) -> str:
     return request.build_absolute_uri("/" + relative.lstrip("/"))
 
 
+def is_hls_output_damaged(stream_id: str) -> bool:
+    """
+    True si la salida HLS existe pero está dañada: index.m3u8 vacío o
+    carpeta sin ningún segmento .ts. Una salida dañada no debe reutilizarse;
+    hay que limpiarla y regenerarla.
+    """
+    index = _index_path(stream_id)
+    if not index.exists():
+        return False
+
+    if index.stat().st_size == 0:
+        return True
+
+    # index con contenido pero sin segmentos en disco -> playlist rota.
+    segments = list(_hls_dir(stream_id).glob("*.ts"))
+    return len(segments) == 0
+
+
+def get_index_age_seconds(stream_id: str):
+    """
+    Segundos transcurridos desde la última escritura del index.m3u8, o None
+    si no existe. FFmpeg reescribe la playlist cada vez que cierra un
+    segmento (~HLS_TIME), así que este número es la señal más fiable de si
+    la salida sigue recibiendo contenido nuevo.
+    """
+    index = _index_path(stream_id)
+    if not index.exists():
+        return None
+    return round(time.time() - index.stat().st_mtime, 1)
+
+
+def is_output_live(stream_id: str) -> bool:
+    """
+    True si la salida HLS sigue PRODUCIENDO contenido nuevo.
+
+    Se decide por la antigüedad del index.m3u8, no por el registro
+    _processes: ese registro vive en memoria del proceso de Django y se
+    pierde en cada reinicio, con lo que un FFmpeg perfectamente vivo
+    aparecería como muerto. El disco, en cambio, no miente: si el index se
+    refrescó hace poco, algo lo está escribiendo.
+
+    Una salida "listo pero muerto" (index y segmentos en disco, pero nadie
+    escribiendo) da ready=True y live=False: se puede reproducir lo ya
+    grabado, pero se congela al agotarlo.
+    """
+    if is_hls_output_damaged(stream_id):
+        return False
+
+    age = get_index_age_seconds(stream_id)
+    if age is None:
+        return False
+
+    ttl = getattr(settings, "HLS_ACTIVE_TTL_SECONDS", 30)
+    return age <= ttl
+
+
 def is_stream_active(stream_id: str) -> bool:
     """
     True si ya existe un HLS "vivo" para este stream_id: hay un proceso
     FFmpeg registrado y en ejecución, o existe un index.m3u8 reciente
-    (dentro de HLS_ACTIVE_TTL_SECONDS). Sirve para no duplicar procesos.
+    (dentro de HLS_ACTIVE_TTL_SECONDS) y sano. Sirve para no duplicar
+    procesos. Si la salida está dañada (index vacío o sin segmentos) y no
+    hay proceso vivo, se limpia para que el siguiente request la regenere.
     """
     with _lock:
         process = _processes.get(stream_id)
@@ -160,12 +276,129 @@ def is_stream_active(stream_id: str) -> bool:
 
     index = _index_path(stream_id)
     if index.exists():
+        # Sin proceso vivo: si la salida quedó dañada, no reutilizarla.
+        # Se borra aquí mismo para que el caller lance un FFmpeg nuevo.
+        if is_hls_output_damaged(stream_id):
+            remove_hls_output(stream_id)
+            return False
+
         ttl = getattr(settings, "HLS_ACTIVE_TTL_SECONDS", 30)
         edad = time.time() - index.stat().st_mtime
         if edad <= ttl:
             return True
 
     return False
+
+
+def remove_hls_output(stream_id: str) -> bool:
+    """
+    Borra la carpeta HLS de un stream_id (index.m3u8 + segmentos).
+    Devuelve True si existía algo que borrar. No toca el proceso: para
+    detenerlo usar stop_hls_transcode().
+    """
+    folder = _hls_dir(stream_id)
+    if not folder.exists():
+        return False
+    shutil.rmtree(folder, ignore_errors=True)
+    return True
+
+
+def get_transcoder_status() -> dict:
+    """
+    Estado global del transcoder para el endpoint de monitoreo:
+    procesos FFmpeg vivos, límite configurado y salidas HLS en disco.
+    No expone URLs de origen ni credenciales.
+    """
+    with _lock:
+        snapshot = dict(_processes)
+
+    alive = {sid for sid, proc in snapshot.items() if proc.poll() is None}
+
+    outputs = []
+    hls_root = settings.HLS_ROOT
+    if hls_root.exists():
+        for folder in sorted(hls_root.iterdir()):
+            if not folder.is_dir():
+                continue
+
+            stream_id = folder.name
+            index = folder / "index.m3u8"
+            if index.exists():
+                stat = index.stat()
+                index_age = round(time.time() - stat.st_mtime, 1)
+                index_size = stat.st_size
+            else:
+                index_age = None
+                index_size = 0
+
+            outputs.append({
+                "stream_id": stream_id,
+                "process_alive": stream_id in alive,
+                "index_exists": index.exists(),
+                "index_age_seconds": index_age,
+                "index_size_bytes": index_size,
+                "segments": len(list(folder.glob("*.ts"))),
+                "damaged": is_hls_output_damaged(stream_id),
+            })
+
+    return {
+        "active_processes": len(alive),
+        "max_concurrent": getattr(settings, "MAX_CONCURRENT_TRANSCODES", 5),
+        "outputs": outputs,
+    }
+
+
+def get_hls_status(stream_id: str) -> dict:
+    """
+    Estado de la salida HLS de UN stream_id, para el endpoint de diagnóstico
+    hls-status. Informa si existe el index, su tamaño, cuántos segmentos hay,
+    si la salida está dañada y si sigue generándose contenido nuevo.
+
+    Distingue dos cosas que NO son lo mismo (Día 11):
+        - ready: hay contenido reproducible en disco.
+        - live:  ese contenido se sigue renovando.
+    Un canal congelado da ready=True + live=False: el player reproduce los
+    segmentos que quedaron y se detiene al agotarlos.
+
+    Ojo con process_alive: es solo una PISTA. El registro _processes vive en
+    memoria y se pierde al reiniciar Django, así que un FFmpeg vivo puede
+    reportarse como process_alive=False. Para decidir si la salida sirve,
+    usar live.
+
+    No expone usuario, contraseña ni la URL original del stream.
+    """
+    folder = _hls_dir(stream_id)
+    index = _index_path(stream_id)
+    index_exists = index.exists()
+    index_size = index.stat().st_size if index_exists else 0
+    segments = len(list(folder.glob("*.ts"))) if folder.exists() else 0
+    damaged = is_hls_output_damaged(stream_id)
+
+    with _lock:
+        process = _processes.get(stream_id)
+    process_alive = process is not None and process.poll() is None
+
+    min_segments_required = getattr(settings, "HLS_MIN_SEGMENTS", 2)
+    ready = (
+        index_exists
+        and index_size > 0
+        and not damaged
+        and segments >= min_segments_required
+    )
+
+    return {
+        "stream_id": stream_id,
+        "index_exists": index_exists,
+        "index_size_bytes": index_size,
+        "index_age_seconds": get_index_age_seconds(stream_id),
+        "segments": segments,
+        "min_segments_required": min_segments_required,
+        "ready": ready,
+        "live": is_output_live(stream_id),
+        "live_max_age_seconds": getattr(settings, "HLS_ACTIVE_TTL_SECONDS", 30),
+        "damaged": damaged,
+        "process_alive": process_alive,
+    }
 
 
 def probe_codecs(stream_url: str):
@@ -208,36 +441,48 @@ def is_web_compatible(video_codec, audio_codec) -> bool:
     return video_codec in WEB_COMPATIBLE_VIDEO and audio_codec in WEB_COMPATIBLE_AUDIO
 
 
-def decide_mode(stream_url: str) -> str:
+def mode_from_codecs(video_codec, audio_codec) -> str:
     """
-    Decide cómo procesar el canal según su códec original, gastando la menor
-    CPU posible:
-      - "remux"           -> video y audio ya compatibles: solo re-empaqueta
-                             (CPU ~0).
-      - "transcode_audio" -> video h264 OK pero audio incompatible (p. ej.
-                             mp2): copia el video y recodifica solo el audio
-                             a AAC (CPU baja).
-      - "transcode"       -> video incompatible (hevc, mpeg2, etc.): recodifica
-                             video y audio a H.264/AAC (CPU alta).
+    Decide el modo de procesamiento a partir de códecs YA sondeados, sin
+    volver a ejecutar ffprobe. Útil para el endpoint de diagnóstico, que
+    ya tiene los códecs y no debe pagar un segundo sondeo.
 
-    Si no se puede determinar el códec, se transcodifica por seguridad
-    (garantiza compatibilidad aunque consuma más CPU).
+      - "remux"           -> video y audio ya compatibles (CPU ~0).
+      - "transcode_audio" -> video h264 OK pero audio incompatible (CPU baja).
+      - "transcode"       -> video incompatible o códec desconocido (CPU alta).
     """
-    video, audio = probe_codecs(stream_url)
-
     # No se pudo leer el códec -> transcode completo por seguridad.
-    if video is None and audio is None:
+    if video_codec is None and audio_codec is None:
         return "transcode"
 
+    # Stream de SOLO AUDIO (radios): no hay video que recodificar, así que
+    # NO debe caer en "transcode" (forzaría libx264 sobre algo sin video y
+    # FFmpeg fallaría). Se decide solo por el audio: remux si ya es
+    # compatible, transcode_audio si hay que convertirlo a AAC.
+    if video_codec is None and audio_codec is not None:
+        if audio_codec in WEB_COMPATIBLE_AUDIO:
+            return "remux"
+        return "transcode_audio"
+
     # Video incompatible -> hay que recodificar el video (lo más caro).
-    if video not in WEB_COMPATIBLE_VIDEO:
+    if video_codec not in WEB_COMPATIBLE_VIDEO:
         return "transcode"
 
     # Video ya es h264. Si el audio también es compatible (o no hay audio),
     # basta un remux. Si solo el audio molesta, se recodifica solo el audio.
-    if audio is None or audio in WEB_COMPATIBLE_AUDIO:
+    if audio_codec is None or audio_codec in WEB_COMPATIBLE_AUDIO:
         return "remux"
     return "transcode_audio"
+
+
+def decide_mode(stream_url: str) -> str:
+    """
+    Sondea el códec del stream original y decide cómo procesarlo, gastando la
+    menor CPU posible. Si no se puede determinar el códec, transcodifica por
+    seguridad. Ver mode_from_codecs() para la tabla de decisión.
+    """
+    video, audio = probe_codecs(stream_url)
+    return mode_from_codecs(video, audio)
 
 
 def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
@@ -247,6 +492,8 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
 
     - mode "remux": -c copy (no recodifica, consumo mínimo).
     - mode "transcode_audio": copia el video y recodifica solo el audio a AAC.
+      (En streams de solo audio, -c:v copy no tiene video que copiar y la
+       salida queda solo con el audio ya convertido a AAC.)
     - mode "transcode": recodifica video a H.264 y audio a AAC.
     """
     ffmpeg_bin = getattr(settings, "FFMPEG_BIN", "ffmpeg")
@@ -257,10 +504,13 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
     elif mode == "transcode_audio":
         command += ["-c:v", "copy", "-c:a", "aac"]
     else:
+        # -pix_fmt yuv420p: el decoder de hardware de Android (ExoPlayer)
+        # rechaza formatos como yuv422p o 10-bit; se fuerza 4:2:0 8-bit.
         command += [
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-tune", "zerolatency",
+            "-pix_fmt", "yuv420p",
             "-c:a", "aac",
         ]
 

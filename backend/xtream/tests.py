@@ -195,7 +195,7 @@ class LiveProxyUrlTests(APITestCase):
         )
         self.assertEqual(response.data["error_code"], "ffmpeg_not_available")
 
-    @patch("xtream.views.transcoder.wait_for_hls_index", return_value=True)
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_proxy_exitoso(self, mock_start, mock_wait):
         """Éxito -> 200 con hls_url y el modo elegido (remux/transcode)."""
@@ -210,7 +210,7 @@ class LiveProxyUrlTests(APITestCase):
         self.assertEqual(response.data["mode"], "transcode")
         self.assertFalse(response.data["reused"])
 
-    @patch("xtream.views.transcoder.wait_for_hls_index", return_value=True)
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_no_filtra_credenciales(self, mock_start, mock_wait):
         """La respuesta no debe contener la contraseña ni la URL original."""
@@ -299,6 +299,43 @@ class LiveProxyUrlTests(APITestCase):
         )
         self.assertEqual(response.data["error_code"], "transcoder_start_error")
 
+    @patch("xtream.views.transcoder.remove_hls_output")
+    @patch("xtream.views.transcoder.stop_hls_transcode")
+    @patch("xtream.views.transcoder.get_hls_status")
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=False)
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_hls_no_listo_limpia_y_devuelve_diagnostico(
+        self, mock_start, mock_wait, mock_status, mock_stop, mock_remove
+    ):
+        """
+        Si el HLS no queda listo a tiempo -> hls_not_ready (500) con el
+        detalle hls_status, y se limpia el proceso y la salida.
+        """
+        mock_start.return_value = ("123", False, "transcode")
+        mock_status.return_value = {
+            "stream_id": "123",
+            "index_exists": True,
+            "index_size_bytes": 271,
+            "segments": 0,
+            "min_segments_required": 2,
+            "ready": False,
+            "damaged": True,
+            "process_alive": False,
+        }
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+        self.assertEqual(response.data["error_code"], "hls_not_ready")
+        self.assertEqual(response.data["stream_id"], "123")
+        self.assertEqual(response.data["hls_status"]["segments"], 0)
+        self.assertFalse(response.data["hls_status"]["ready"])
+        # El diagnóstico se toma antes de limpiar; luego se detiene y borra.
+        mock_stop.assert_called_once_with("123")
+        mock_remove.assert_called_once_with("123")
+
 
 class TranscoderModeTests(SimpleTestCase):
     """
@@ -351,6 +388,11 @@ class TranscoderModeTests(SimpleTestCase):
         cmd = transcoder._build_ffmpeg_command("http://x", "out.m3u8", "transcode")
         self.assertIn("libx264", cmd)
         self.assertNotIn("copy", cmd)
+
+    def test_build_command_transcode_fuerza_yuv420p(self):
+        """El modo transcode fuerza -pix_fmt yuv420p (compatibilidad Android)."""
+        cmd = transcoder._build_ffmpeg_command("http://x", "out.m3u8", "transcode")
+        self.assertEqual(cmd[cmd.index("-pix_fmt") + 1], "yuv420p")
 
 
 class TranscoderLifecycleTests(SimpleTestCase):
@@ -409,3 +451,549 @@ class TranscoderLifecycleTests(SimpleTestCase):
             self.assertFalse(huerfana.exists())
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+# --- Día 8: control de procesos y diagnóstico de canales Xtream -----------
+
+class LiveStopProxyTests(APITestCase):
+    """POST /api/xtream/live/stop-proxy/ (detener + borrar salida HLS)."""
+
+    def setUp(self):
+        self.url = reverse("live_stop_proxy")
+
+    def test_stream_id_faltante_devuelve_400(self):
+        response = self.client.post(self.url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "missing_stream_id")
+
+    def test_stream_id_invalido_devuelve_400(self):
+        response = self.client.post(
+            self.url, {"stream_id": "../../etc"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "invalid_stream_id")
+
+    @patch("xtream.views.transcoder.remove_hls_output", return_value=True)
+    @patch("xtream.views.transcoder.stop_hls_transcode", return_value=True)
+    def test_detiene_proceso_existente(self, mock_stop, mock_remove):
+        response = self.client.post(self.url, {"stream_id": 41}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertTrue(response.data["stopped"])
+        self.assertTrue(response.data["output_removed"])
+        self.assertEqual(response.data["stream_id"], "41")
+        mock_stop.assert_called_once_with("41")
+        mock_remove.assert_called_once_with("41")
+
+    @patch("xtream.views.transcoder.remove_hls_output", return_value=False)
+    @patch("xtream.views.transcoder.stop_hls_transcode", return_value=False)
+    def test_sin_proceso_activo_responde_stopped_false(self, mock_stop, mock_remove):
+        response = self.client.post(self.url, {"stream_id": 999}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertFalse(response.data["stopped"])
+        self.assertFalse(response.data["output_removed"])
+
+
+class LiveProxyStatusTests(APITestCase):
+    """GET /api/xtream/live/proxy-status/ (monitoreo del transcoder)."""
+
+    def setUp(self):
+        self.url = reverse("live_proxy_status")
+
+    @patch("xtream.views.transcoder.get_transcoder_status")
+    def test_devuelve_estado_del_transcoder(self, mock_status):
+        mock_status.return_value = {
+            "active_processes": 1,
+            "max_concurrent": 5,
+            "outputs": [
+                {
+                    "stream_id": "41",
+                    "process_alive": True,
+                    "index_exists": True,
+                    "index_age_seconds": 2.5,
+                    "index_size_bytes": 350,
+                    "segments": 6,
+                    "damaged": False,
+                }
+            ],
+        }
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["active_processes"], 1)
+        self.assertEqual(response.data["max_concurrent"], 5)
+        self.assertEqual(response.data["outputs"][0]["stream_id"], "41")
+
+    def test_solo_acepta_get(self):
+        response = self.client.post(self.url, {}, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
+        )
+
+
+class LiveDiagnoseStreamTests(APITestCase):
+    """POST /api/xtream/live/diagnose-stream/ (códecs + modo recomendado)."""
+
+    def setUp(self):
+        self.url = reverse("live_diagnose_stream")
+        self.payload = {
+            "username": "cliente.demo",
+            "password": "cualquiera",
+            "stream_id": 41,
+            "output": "m3u8",
+        }
+
+    def test_credenciales_faltantes_devuelve_400(self):
+        response = self.client.post(
+            self.url, {"stream_id": 41}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "missing_credentials")
+
+    def test_stream_id_faltante_devuelve_400(self):
+        response = self.client.post(
+            self.url,
+            {"username": "x", "password": "y"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "missing_stream_id")
+
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=False)
+    def test_ffmpeg_no_disponible_devuelve_503(self, _mock_ffmpeg):
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        self.assertEqual(response.data["error_code"], "ffmpeg_not_available")
+
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_url_invalida_devuelve_502(self, mock_client, _mock_ffmpeg):
+        """URL sin http (XTREAM_BASE_URL vacío) -> stream_url_error (502)."""
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "/live/cliente.demo/cualquiera/41.m3u8"
+        )
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.data["error_code"], "stream_url_error")
+
+    @patch("xtream.views.transcoder.probe_codecs", return_value=("h264", "aac"))
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_diagnostico_exitoso_remux(self, mock_client, _mock_ffmpeg, _mock_probe):
+        """h264 + aac -> web_compatible true y recommended_mode remux."""
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "http://servidor/live/cliente.demo/cualquiera/41.m3u8"
+        )
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["stream_id"], "41")
+        self.assertEqual(response.data["video_codec"], "h264")
+        self.assertEqual(response.data["audio_codec"], "aac")
+        self.assertTrue(response.data["web_compatible"])
+        self.assertEqual(response.data["recommended_mode"], "remux")
+
+    @patch("xtream.views.transcoder.probe_codecs", return_value=("hevc", "ac3"))
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_diagnostico_incompatible_transcode(
+        self, mock_client, _mock_ffmpeg, _mock_probe
+    ):
+        """hevc + ac3 -> web_compatible false y recommended_mode transcode."""
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "http://servidor/live/cliente.demo/cualquiera/41.m3u8"
+        )
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["web_compatible"])
+        self.assertEqual(response.data["recommended_mode"], "transcode")
+
+    @patch("xtream.views.transcoder.probe_codecs", return_value=("h264", "aac"))
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_no_filtra_credenciales(self, mock_client, _mock_ffmpeg, _mock_probe):
+        """La respuesta de diagnóstico no debe exponer password ni la URL."""
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "http://servidor/live/cliente.demo/cualquiera/41.m3u8"
+        )
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        cuerpo = str(response.data)
+        self.assertNotIn("cualquiera", cuerpo)   # password
+        self.assertNotIn("/live/", cuerpo)       # ruta con credenciales
+
+
+class ModeFromCodecsTests(SimpleTestCase):
+    """Decisión de modo a partir de códecs ya sondeados (sin ffprobe)."""
+
+    def test_h264_aac_es_remux(self):
+        self.assertEqual(transcoder.mode_from_codecs("h264", "aac"), "remux")
+
+    def test_h264_sin_audio_es_remux(self):
+        self.assertEqual(transcoder.mode_from_codecs("h264", None), "remux")
+
+    def test_h264_audio_incompatible_es_transcode_audio(self):
+        self.assertEqual(
+            transcoder.mode_from_codecs("h264", "mp2"), "transcode_audio"
+        )
+
+    def test_video_incompatible_es_transcode(self):
+        self.assertEqual(transcoder.mode_from_codecs("hevc", "aac"), "transcode")
+
+    def test_codec_desconocido_es_transcode(self):
+        self.assertEqual(transcoder.mode_from_codecs(None, None), "transcode")
+
+    def test_solo_audio_compatible_es_remux(self):
+        """Radio (sin video) con audio aac -> remux, NO transcode (no libx264)."""
+        self.assertEqual(transcoder.mode_from_codecs(None, "aac"), "remux")
+
+    def test_solo_audio_incompatible_es_transcode_audio(self):
+        """
+        Radio (sin video) con audio incompatible (aac_latm/mp2) ->
+        transcode_audio: convierte el audio a AAC SIN forzar libx264 sobre
+        un stream que no tiene video (antes caía en transcode y FFmpeg fallaba).
+        """
+        self.assertEqual(
+            transcoder.mode_from_codecs(None, "aac_latm"), "transcode_audio"
+        )
+        self.assertEqual(
+            transcoder.mode_from_codecs(None, "mp2"), "transcode_audio"
+        )
+
+
+# --- Día 9: endpoint de diagnóstico HLS por stream_id ---------------------
+
+class HlsStatusHelperTests(SimpleTestCase):
+    """transcoder.get_hls_status(): estado de la salida HLS en disco."""
+
+    def test_sin_salida_reporta_vacio(self):
+        """Sin carpeta/index -> index_exists False, 0 segmentos, no vivo."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            with override_settings(HLS_ROOT=tmp):
+                data = transcoder.get_hls_status("777")
+
+            self.assertEqual(data["stream_id"], "777")
+            self.assertFalse(data["index_exists"])
+            self.assertEqual(data["index_size_bytes"], 0)
+            self.assertEqual(data["segments"], 0)
+            self.assertFalse(data["process_alive"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_con_salida_cuenta_segmentos(self):
+        """Con index.m3u8 y .ts -> index_exists True, tamaño y segmentos > 0."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            folder = tmp / "778"
+            folder.mkdir()
+            (folder / "index.m3u8").write_text("#EXTM3U")
+            (folder / "segment_000.ts").write_text("x")
+            (folder / "segment_001.ts").write_text("y")
+
+            with override_settings(HLS_ROOT=tmp):
+                data = transcoder.get_hls_status("778")
+
+            self.assertTrue(data["index_exists"])
+            self.assertGreater(data["index_size_bytes"], 0)
+            self.assertEqual(data["segments"], 2)
+            self.assertFalse(data["damaged"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ready_true_con_segmentos_suficientes(self):
+        """Con index + 2 segmentos (>= min) -> ready True y min_segments_required."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            folder = tmp / "779"
+            folder.mkdir()
+            (folder / "index.m3u8").write_text("#EXTM3U")
+            (folder / "segment_000.ts").write_text("x")
+            (folder / "segment_001.ts").write_text("y")
+
+            with override_settings(HLS_ROOT=tmp, HLS_MIN_SEGMENTS=2):
+                data = transcoder.get_hls_status("779")
+
+            self.assertEqual(data["min_segments_required"], 2)
+            self.assertTrue(data["ready"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ready_false_con_pocos_segmentos(self):
+        """Con index pero menos segmentos que el mínimo -> ready False."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            folder = tmp / "780"
+            folder.mkdir()
+            (folder / "index.m3u8").write_text("#EXTM3U")
+            (folder / "segment_000.ts").write_text("x")
+
+            with override_settings(HLS_ROOT=tmp, HLS_MIN_SEGMENTS=2):
+                data = transcoder.get_hls_status("780")
+
+            self.assertEqual(data["segments"], 1)
+            self.assertFalse(data["ready"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+# --- Día 11: distinguir HLS "listo" de HLS "vivo" -------------------------
+
+class ProcesoFalso:
+    """
+    Doble de subprocess.Popen. poll() devuelve None si el proceso sigue
+    corriendo, o un returncode si ya terminó.
+    """
+
+    def __init__(self, returncode=None):
+        self.returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+
+def _montar_salida_hls(root, stream_id, segmentos=7, edad_index=0.0):
+    """
+    Crea una salida HLS en disco y envejece el index.m3u8 ``edad_index``
+    segundos, para simular "FFmpeg dejó de escribir hace N segundos".
+    """
+    folder = Path(root) / stream_id
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "index.m3u8").write_text("#EXTM3U\n#EXT-X-VERSION:3\n")
+    for i in range(segmentos):
+        (folder / f"segment_{i:03d}.ts").write_text("x")
+
+    if edad_index:
+        marca = time.time() - edad_index
+        os.utime(folder / "index.m3u8", (marca, marca))
+    return folder
+
+
+class OutputLiveTests(SimpleTestCase):
+    """
+    transcoder.is_output_live(): decide por la antigüedad del index.m3u8,
+    NO por el registro _processes (que se pierde al reiniciar Django).
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        self.addCleanup(transcoder._processes.clear)
+
+    def test_live_true_con_index_fresco(self):
+        """Index reescrito hace 2s -> algo lo está escribiendo: live True."""
+        _montar_salida_hls(self.tmp, "800", edad_index=2)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertTrue(transcoder.is_output_live("800"))
+
+    def test_live_false_con_index_viejo(self):
+        """Index sin tocarse hace 45s -> nadie produce: live False."""
+        _montar_salida_hls(self.tmp, "801", edad_index=45)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertFalse(transcoder.is_output_live("801"))
+
+    def test_live_false_sin_salida(self):
+        """Sin carpeta ni index -> no hay nada vivo."""
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertFalse(transcoder.is_output_live("802"))
+
+    def test_live_false_si_salida_danada(self):
+        """Index fresco pero sin segmentos (playlist rota) -> live False."""
+        folder = self.tmp / "803"
+        folder.mkdir()
+        (folder / "index.m3u8").write_text("#EXTM3U")  # sin .ts
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertFalse(transcoder.is_output_live("803"))
+
+    def test_live_no_depende_del_registro_de_procesos(self):
+        """
+        Django reinició y _processes quedó vacío, pero FFmpeg sigue vivo y
+        refrescando el index. live debe seguir siendo True aunque
+        process_alive sea False: si no, se mataría un proceso sano.
+        """
+        _montar_salida_hls(self.tmp, "804", edad_index=1)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            data = transcoder.get_hls_status("804")
+
+        self.assertFalse(data["process_alive"])  # registro vacío
+        self.assertTrue(data["live"])            # el disco dice que sí
+
+    def test_index_age_seconds_refleja_antiguedad(self):
+        """index_age_seconds mide los segundos desde la última escritura."""
+        _montar_salida_hls(self.tmp, "805", edad_index=20)
+
+        with override_settings(HLS_ROOT=self.tmp):
+            edad = transcoder.get_index_age_seconds("805")
+
+        self.assertAlmostEqual(edad, 20, delta=2)
+
+    def test_index_age_seconds_none_sin_index(self):
+        """Sin index.m3u8 no hay antigüedad que medir -> None."""
+        with override_settings(HLS_ROOT=self.tmp):
+            self.assertIsNone(transcoder.get_index_age_seconds("806"))
+
+    def test_caso_rpp_ready_true_pero_live_false(self):
+        """
+        Caso RPP (stream_id 65) reportado por Joleydi: index y 7 segmentos en
+        disco, FFmpeg muerto. La salida es reproducible (ready=True) pero está
+        congelada (live=False): el player agota los segmentos y se detiene.
+
+        Este es el escenario que hls-status debe permitir distinguir.
+        """
+        _montar_salida_hls(self.tmp, "65", segmentos=7, edad_index=45)
+        transcoder._processes["65"] = ProcesoFalso(returncode=1)  # murió
+
+        with override_settings(
+            HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10, HLS_MIN_SEGMENTS=2
+        ):
+            data = transcoder.get_hls_status("65")
+
+        self.assertEqual(data["segments"], 7)
+        self.assertFalse(data["damaged"])
+        self.assertFalse(data["process_alive"])
+        self.assertTrue(data["ready"])   # hay contenido reproducible...
+        self.assertFalse(data["live"])   # ...pero ya no se renueva
+        self.assertGreater(data["index_age_seconds"], 10)
+        self.assertEqual(data["live_max_age_seconds"], 10)
+
+
+class WaitForHlsReadyTests(SimpleTestCase):
+    """
+    transcoder.wait_for_hls_ready(): la espera completa que exige index +
+    segmentos suficientes antes de dar el HLS por listo (Día 10).
+
+    Se trabaja sobre una carpeta temporal (HLS_ROOT) y sin proceso FFmpeg
+    registrado, por lo que los casos "no listos" agotan el timeout corto.
+    """
+
+    def _make_output(self, tmp, stream_id, index_content="#EXTM3U", segments=0):
+        folder = tmp / stream_id
+        folder.mkdir()
+        (folder / "index.m3u8").write_text(index_content)
+        for i in range(segments):
+            (folder / f"segment_{i:03d}.ts").write_text("x")
+        return folder
+
+    def test_false_si_no_existe_index(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "800", timeout_seconds=1, min_segments=2
+                )
+            self.assertFalse(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_false_si_index_vacio(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            self._make_output(tmp, "801", index_content="", segments=2)
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "801", timeout_seconds=1, min_segments=2
+                )
+            self.assertFalse(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_false_si_no_hay_segmentos(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            self._make_output(tmp, "802", segments=0)
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "802", timeout_seconds=1, min_segments=2
+                )
+            self.assertFalse(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_false_si_menos_segmentos_que_el_minimo(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            self._make_output(tmp, "803", segments=1)
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "803", timeout_seconds=1, min_segments=2
+                )
+            self.assertFalse(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_true_si_index_y_segmentos_suficientes(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            self._make_output(tmp, "804", segments=2)
+            with override_settings(HLS_ROOT=tmp):
+                listo = transcoder.wait_for_hls_ready(
+                    "804", timeout_seconds=2, min_segments=2
+                )
+            self.assertTrue(listo)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class LiveHlsStatusEndpointTests(APITestCase):
+    """GET /api/xtream/live/hls-status/<stream_id>/."""
+
+    def test_stream_id_invalido_devuelve_400(self):
+        url = reverse("live_hls_status", args=["bad.id"])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "invalid_stream_id")
+
+    @patch("xtream.views.transcoder.get_hls_status")
+    def test_devuelve_estado_hls(self, mock_status):
+        mock_status.return_value = {
+            "stream_id": "71",
+            "index_exists": True,
+            "index_size_bytes": 273,
+            "segments": 6,
+            "damaged": False,
+            "process_alive": True,
+        }
+
+        url = reverse("live_hls_status", args=["71"])
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertEqual(response.data["stream_id"], "71")
+        self.assertTrue(response.data["index_exists"])
+        self.assertEqual(response.data["segments"], 6)
+        self.assertTrue(response.data["process_alive"])
+
+    def test_solo_acepta_get(self):
+        url = reverse("live_hls_status", args=["71"])
+        response = self.client.post(url, {}, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
+        )

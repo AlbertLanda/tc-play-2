@@ -1,9 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 
+import '../../../core/constants/app_colors.dart';
 import '../services/live_tv_service.dart';
 
 class PlayerScreen extends StatefulWidget {
-  const PlayerScreen({super.key});
+  final String username;
+  final String password;
+  final int streamId;
+  final String channelName;
+  final String? channelIcon;
+
+  const PlayerScreen({
+    super.key,
+    required this.username,
+    required this.password,
+    required this.streamId,
+    required this.channelName,
+    this.channelIcon,
+  });
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -12,150 +27,236 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   final LiveTvService _service = LiveTvService();
 
-  late Future<Map<String, dynamic>> _future;
+  late Future<String> _streamUrl;
+
+  VideoPlayerController? _videoPlayerController;
+
+  bool _isInitializingPlayer = false;
+  bool _playerError = false;
 
   @override
   void initState() {
     super.initState();
-    _future = _service.getLiveTvData();
+
+    _streamUrl = _service.getProxyStreamUrl(
+      username: widget.username,
+      password: widget.password,
+      streamId: widget.streamId,
+    );
+  }
+
+  Future<void> _initializePlayer(String url) async {
+
+    try {
+      await _videoPlayerController?.dispose();
+      _videoPlayerController = null;
+
+      if (mounted) {
+        setState(() {
+          _isInitializingPlayer = true;
+          _playerError = false;
+        });
+      }
+
+      _videoPlayerController = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        videoPlayerOptions: VideoPlayerOptions(
+          mixWithOthers: true,
+        ),
+      );
+
+      _videoPlayerController!.addListener(() {
+        final controller = _videoPlayerController!;
+
+        if (controller.value.hasError) {
+          debugPrint(
+            'VIDEO ERROR: ${controller.value.errorDescription}',
+          );
+        }
+      });
+
+      await _videoPlayerController!.initialize();
+
+      if (_videoPlayerController!.value.isInitialized){
+        await _videoPlayerController!.play();
+      }
+
+      if (mounted) {
+        setState(() {
+          _isInitializingPlayer = false;
+        });
+      }
+
+    } catch (e) {
+
+
+        await _videoPlayerController?.dispose();
+        _videoPlayerController = null;
+
+        if (mounted) {
+          setState(() {
+            _isInitializingPlayer = false;
+            _playerError = true;
+          });
+        }
+      }
+  }
+
+  @override
+  void dispose() {
+    _videoPlayerController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    await _videoPlayerController?.dispose();
+    _videoPlayerController = null;
+
+    setState(() {
+      _playerError = false;
+      _isInitializingPlayer = false;
+
+      _streamUrl = _service.getProxyStreamUrl(
+        username: widget.username,
+        password: widget.password,
+        streamId: widget.streamId,
+      );
+    });
+
+    await _streamUrl;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("Live TV"),
+        backgroundColor: AppColors.background,
+        title: Text(widget.channelName),
         centerTitle: true,
       ),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _future,
+      body: FutureBuilder<String>(
+        future: _streamUrl,
         builder: (context, snapshot) {
-          if (!snapshot.hasData) {
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(),
+              child: CircularProgressIndicator(
+                color: AppColors.neonGreen,
+              ),
             );
           }
 
-          final current = snapshot.data!["currentChannel"];
-          final channels = snapshot.data!["channels"] as List;
+          if (snapshot.hasError) {
 
-          return Column(
-            children: [
-              const SizedBox(height: 20),
-
-              // Reproductor
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                height: 220,
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Stack(
-                  children: [
-                    const Center(
-                      child: Icon(
-                        Icons.live_tv,
-                        color: Colors.white,
-                        size: 90,
-                      ),
-                    ),
-                    Positioned(
-                      top: 15,
-                      left: 15,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          "EN VIVO",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Text(
-                "${current["number"]} - ${current["name"]}",
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              const Text(
-                "Transmisión simulada",
-                style: TextStyle(
-                  color: Colors.grey,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.keyboard_arrow_up),
-                    label: const Text("Canal +"),
+
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.red,
+                    size: 50,
                   ),
+
+                  const SizedBox(height: 16),
+
+                  const Text(
+                    'No se pudo cargar el canal.',
+                    style: TextStyle(
+                      color: AppColors.white,
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
                   ElevatedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.keyboard_arrow_down),
-                    label: const Text("Canal -"),
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Reintentar'),
                   ),
                 ],
               ),
+            );
+          }
 
-              const SizedBox(height: 25),
 
-              const Divider(),
+          final streamUrl = snapshot.data!;
 
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    "Lista de canales",
+          if (_videoPlayerController == null &&
+              !_isInitializingPlayer &&
+              !_playerError) {
+
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _initializePlayer(streamUrl);
+            });
+          }
+
+
+          if (_isInitializingPlayer) {
+            return const Center(
+              child: CircularProgressIndicator(
+                color: AppColors.neonGreen,
+              ),
+            );
+          }
+
+
+          if (_playerError) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+
+                  const Icon(
+                    Icons.error_outline,
+                    color: Colors.red,
+                    size: 50,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  const Text(
+                    'No se pudo reproducir el canal.',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
+                      color: AppColors.white,
                     ),
                   ),
+
+                  const SizedBox(height: 16),
+
+                  ElevatedButton(
+                    onPressed: () {
+                      _initializePlayer(streamUrl);
+                    },
+                    child: const Text('Reintentar'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+
+          if (_videoPlayerController != null &&
+              _videoPlayerController!.value.isInitialized) {
+
+            return Center(
+              child: AspectRatio(
+                aspectRatio:
+                    _videoPlayerController!.value.aspectRatio,
+                child: VideoPlayer(
+                  _videoPlayerController!,
                 ),
               ),
+            );
+          }
 
-              Expanded(
-                child: ListView.builder(
-                  itemCount: channels.length,
-                  itemBuilder: (context, index) {
-                    final item = channels[index];
 
-                    return ListTile(
-                      leading: const Icon(Icons.tv),
-                      title: Text(item["name"]),
-                      subtitle: Text("Canal ${item["number"]}"),
-                      trailing: const Icon(Icons.play_circle_fill),
-                    );
-                  },
-                ),
-              ),
-            ],
+          return const Center(
+            child: CircularProgressIndicator(
+              color: AppColors.neonGreen,
+            ),
           );
         },
       ),

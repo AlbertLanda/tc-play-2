@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-u395&evabi2_x1#9$x9qfpo#8hfzg0&qj79gnn0j=!9it9_qm@
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -155,6 +155,11 @@ HLS_ACTIVE_TTL_SECONDS = config("HLS_ACTIVE_TTL_SECONDS", default=30, cast=int)
 # Límite de procesos FFmpeg simultáneos. Si se alcanza, el endpoint responde
 # transcoder_busy en vez de lanzar más procesos y saturar el servidor.
 MAX_CONCURRENT_TRANSCODES = config("MAX_CONCURRENT_TRANSCODES", default=5, cast=int)
+
+# Segmentos .ts mínimos que debe haber generado FFmpeg antes de dar el HLS
+# por "listo" y responder al player (Android falla si recibe la URL demasiado
+# pronto). Usado por wait_for_hls_ready() y por el diagnóstico hls-status.
+HLS_MIN_SEGMENTS = config("HLS_MIN_SEGMENTS", default=2, cast=int)
 
 # --- Astra playlist ---
 ASTRA_PLAYLIST_URL = config("ASTRA_PLAYLIST_URL", default="")

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../auth/screens/login_screen.dart';
 import '../../live_tv/screens/categories_screen.dart';
-import '../../live_tv/screens/player_screen.dart';
 import '../../live_tv/services/live_tv_service.dart';
 import '../../live_tv/models/live_category.dart';
 import '../widgets/home_menu_card.dart';
@@ -37,13 +36,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _goToLiveTv() {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const PlayerScreen(),
-    ),
-  );
-}
+    _goToCategories();
+  }
 
   void _goToCategories() {
     Navigator.push(

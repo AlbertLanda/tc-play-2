@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../models/live_channel.dart';
 import '../services/live_tv_service.dart';
+import 'player_screen.dart';
 
 class ChannelsScreen extends StatefulWidget {
   final String username;
@@ -52,6 +53,12 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
     });
 
     await _channels;
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -238,10 +245,15 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                           ],
                         ),
                         onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Reproducción disponible en Día 6',
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => PlayerScreen(
+                                username: widget.username,
+                                password: widget.password,
+                                streamId: channel.id,
+                                channelName: channel.name,
+                                channelIcon: channel.icon,
                               ),
                             ),
                           );
