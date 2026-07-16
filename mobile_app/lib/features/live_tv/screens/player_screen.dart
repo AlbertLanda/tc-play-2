@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../services/live_tv_service.dart';
@@ -37,6 +38,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+
+    WakelockPlus.enable();
 
     _streamUrl = _service.getProxyStreamUrl(
       username: widget.username,
@@ -96,6 +99,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    WakelockPlus.disable();
     _videoPlayerController?.dispose();
 
     _service.stopProxy(streamId: widget.streamId);
