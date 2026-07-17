@@ -6,9 +6,7 @@ import '../models/live_category.dart';
 import '../models/live_channel.dart';
 import '../../../core/constants/api_constants.dart';
 
-
 class LiveTvService {
-
   /// Categorías reales
   Future<List<LiveCategory>> getCategories({
     required String username,
@@ -16,13 +14,8 @@ class LiveTvService {
   }) async {
     final response = await http.post(
       Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/categories/'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'username': username,
-        'password': password,
-      }),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'username': username, 'password': password}),
     );
 
     final data = jsonDecode(response.body);
@@ -36,9 +29,7 @@ class LiveTvService {
     final categories = data['categories'] as List<dynamic>? ?? [];
 
     return categories
-        .map(
-          (item) => LiveCategory.fromJson(item as Map<String, dynamic>),
-        )
+        .map((item) => LiveCategory.fromJson(item as Map<String, dynamic>))
         .toList();
   }
 
@@ -50,9 +41,7 @@ class LiveTvService {
   }) async {
     final response = await http.post(
       Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/streams/'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'username': username,
         'password': password,
@@ -63,17 +52,13 @@ class LiveTvService {
     final data = jsonDecode(response.body);
 
     if (response.statusCode != 200 || data['success'] != true) {
-      throw Exception(
-        data['message'] ?? 'No se pudieron cargar los canales.',
-      );
+      throw Exception(data['message'] ?? 'No se pudieron cargar los canales.');
     }
 
     final channels = data['channels'] as List<dynamic>? ?? [];
 
     return channels
-        .map(
-          (item) => LiveChannel.fromJson(item as Map<String, dynamic>),
-        )
+        .map((item) => LiveChannel.fromJson(item as Map<String, dynamic>))
         .toList();
   }
 
@@ -86,9 +71,7 @@ class LiveTvService {
   }) async {
     final response = await http.post(
       Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/stream-url/'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'username': username,
         'password': password,
@@ -98,7 +81,6 @@ class LiveTvService {
     );
 
     final data = jsonDecode(response.body);
-    
 
     if (response.statusCode != 200 || data['success'] != true) {
       throw Exception(
@@ -120,26 +102,11 @@ class LiveTvService {
         "isLive": true,
       },
       "channels": [
-        {
-          "number": "001",
-          "name": "TC Noticias HD",
-        },
-        {
-          "number": "002",
-          "name": "TC Deportes HD",
-        },
-        {
-          "number": "003",
-          "name": "TC Películas",
-        },
-        {
-          "number": "004",
-          "name": "TC Música",
-        },
-        {
-          "number": "005",
-          "name": "TC Infantil",
-        },
+        {"number": "001", "name": "TC Noticias HD"},
+        {"number": "002", "name": "TC Deportes HD"},
+        {"number": "003", "name": "TC Películas"},
+        {"number": "004", "name": "TC Música"},
+        {"number": "005", "name": "TC Infantil"},
       ],
     };
   }
@@ -151,9 +118,7 @@ class LiveTvService {
   }) async {
     final response = await http.post(
       Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/proxy-url/'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'username': username,
         'password': password,
@@ -170,5 +135,13 @@ class LiveTvService {
     }
 
     return data['hls_url'].toString();
+  }
+
+  Future<void> stopProxy({required int streamId}) async {
+    await http.post(
+      Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/stop-proxy/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'stream_id': streamId.toString()}),
+    );
   }
 }
