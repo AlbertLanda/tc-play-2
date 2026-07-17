@@ -17,6 +17,7 @@ técnica, no una configuración lista para producción.
 """
 
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -25,6 +26,12 @@ import time
 from pathlib import Path
 
 from django.conf import settings
+
+
+# Logger del transcoder. Los logs son técnicos y SEGUROS: nunca incluyen
+# usuario, contraseña ni la URL original del stream, solo el stream_id y
+# métricas de la salida HLS en disco.
+logger = logging.getLogger(__name__)
 
 
 # Códecs que el navegador reproduce de forma nativa (vía hls.js). Si el canal
@@ -73,6 +80,10 @@ class TranscoderBusyError(TranscoderError):
 # simple por proceso de Django; en producción se necesitaría algo más
 # robusto (cola de trabajos, límite de concurrencia, etc.).
 _processes = {}
+# Mapa stream_id -> timestamp (time.time()) en que se lanzó ese FFmpeg. Sirve
+# para calcular el uptime del proceso. Vive en memoria igual que _processes,
+# así que se pierde al reiniciar Django (uptime = None tras un reinicio).
+_process_started_at = {}
 _lock = threading.Lock()
 
 # Solo se permiten stream_id alfanuméricos para construir la ruta de salida
@@ -235,6 +246,27 @@ def get_index_age_seconds(stream_id: str):
     return round(time.time() - index.stat().st_mtime, 1)
 
 
+def get_process_uptime_seconds(stream_id: str):
+    """
+    Segundos que lleva CORRIENDO el proceso FFmpeg de este stream_id, o None
+    si no hay un proceso vivo registrado.
+
+    Se basa en el registro en memoria (_process_started_at), así que —igual
+    que process_alive— devuelve None tras un reinicio de Django aunque FFmpeg
+    siga vivo. Solo cuenta si el proceso sigue en ejecución: si ya terminó,
+    el uptime deja de tener sentido y se devuelve None.
+    """
+    with _lock:
+        process = _processes.get(stream_id)
+        started = _process_started_at.get(stream_id)
+
+    if process is None or started is None:
+        return None
+    if process.poll() is not None:  # el proceso ya terminó
+        return None
+    return round(time.time() - started, 1)
+
+
 def is_output_live(stream_id: str) -> bool:
     """
     True si la salida HLS sigue PRODUCIENDO contenido nuevo.
@@ -260,33 +292,67 @@ def is_output_live(stream_id: str) -> bool:
     return age <= ttl
 
 
+def _log_recovery(stream_id: str, reason: str, reused: bool = False) -> None:
+    """
+    Log técnico SEGURO de una decisión de recuperación de HLS.
+
+    Registra solo stream_id + métricas de la salida en disco (reason, ready,
+    live, index_age_seconds, segments, reused).
+    """
+    status = get_hls_status(stream_id)
+    logger.info(
+        "hls_recovery stream_id=%s reason=%s ready=%s live=%s "
+        "index_age_seconds=%s segments=%s hls_reused=%s",
+        stream_id,
+        reason,
+        status["ready"],
+        status["live"],
+        status["index_age_seconds"],
+        status["segments"],
+        reused,
+    )
+
+
 def is_stream_active(stream_id: str) -> bool:
     """
-    True si ya existe un HLS "vivo" para este stream_id: hay un proceso
-    FFmpeg registrado y en ejecución, o existe un index.m3u8 reciente
-    (dentro de HLS_ACTIVE_TTL_SECONDS) y sano. Sirve para no duplicar
-    procesos. Si la salida está dañada (index vacío o sin segmentos) y no
-    hay proceso vivo, se limpia para que el siguiente request la regenere.
+    True si ya existe un HLS reutilizable para este stream_id; False si hay
+    que (re)generarlo. Recuperación automática de salidas muertas:
+
+        - Proceso FFmpeg registrado y vivo            -> activo (True).
+        - HLS con index fresco/live=True              -> activo (True).
+        - HLS listo pero live=False (muerto)          -> limpiar y regenerar.
+        - HLS dañado (index vacío o sin segmentos)    -> limpiar y regenerar.
+    la salida quedó reproducible en disco (ready=True) pero FFmpeg dejó de renovarla 
+    (live=False), así que el player agotaría los segmentos y se congelaría. En vez de 
+    reutilizarla, se detiene cualquier proceso zombie y se borra la carpeta para que 
+    el caller relance FFmpeg con contenido fresco.
     """
     with _lock:
         process = _processes.get(stream_id)
 
+    # Proceso FFmpeg registrado y vivo -> activo, se reutiliza.
     if process is not None and process.poll() is None:
         return True
 
     index = _index_path(stream_id)
-    if index.exists():
-        # Sin proceso vivo: si la salida quedó dañada, no reutilizarla.
-        # Se borra aquí mismo para que el caller lance un FFmpeg nuevo.
-        if is_hls_output_damaged(stream_id):
-            remove_hls_output(stream_id)
-            return False
+    if not index.exists():
+        return False
 
-        ttl = getattr(settings, "HLS_ACTIVE_TTL_SECONDS", 30)
-        edad = time.time() - index.stat().st_mtime
-        if edad <= ttl:
-            return True
+    # Salida dañada (index vacío o sin segmentos): no reutilizarla.
+    if is_hls_output_damaged(stream_id):
+        _log_recovery(stream_id, "damaged_hls_output")
+        remove_hls_output(stream_id)
+        return False
 
+    # HLS con index fresco (live=True) -> sigue produciendo, se reutiliza.
+    if is_output_live(stream_id):
+        return True
+
+    # HLS listo pero muerto (ready=True + live=False): se limpia el proceso
+    # zombie y la salida para forzar la regeneración en el siguiente request.
+    _log_recovery(stream_id, "dead_hls_output")
+    stop_hls_transcode(stream_id)
+    remove_hls_output(stream_id)
     return False
 
 
@@ -385,6 +451,20 @@ def get_hls_status(stream_id: str) -> dict:
         and not damaged
         and segments >= min_segments_required
     )
+    live = is_output_live(stream_id)
+
+    # la salida necesita recuperación cuando es reproducible pero ya
+    # no se renueva (ready=True + live=False). El backend debe limpiarla y
+    # regenerarla en vez de reutilizar segmentos que el player agotará.
+    recovery_required = ready and not live
+
+    # Uptime del proceso FFmpeg: cuánto lleva corriendo este canal. Se expone
+    # también en minutos para leerlo cómodo. None si no hay proceso vivo
+    # registrado (o tras reiniciar Django, igual que process_alive).
+    uptime_seconds = get_process_uptime_seconds(stream_id)
+    uptime_minutes = (
+        round(uptime_seconds / 60, 2) if uptime_seconds is not None else None
+    )
 
     return {
         "stream_id": stream_id,
@@ -394,8 +474,11 @@ def get_hls_status(stream_id: str) -> dict:
         "segments": segments,
         "min_segments_required": min_segments_required,
         "ready": ready,
-        "live": is_output_live(stream_id),
+        "live": live,
+        "recovery_required": recovery_required,
         "live_max_age_seconds": getattr(settings, "HLS_ACTIVE_TTL_SECONDS", 30),
+        "uptime_seconds": uptime_seconds,
+        "uptime_minutes": uptime_minutes,
         "damaged": damaged,
         "process_alive": process_alive,
     }
@@ -578,6 +661,7 @@ def start_hls_transcode(stream_url: str, stream_id: str, forced_mode: str = None
 
     with _lock:
         _processes[stream_id] = process
+        _process_started_at[stream_id] = time.time()
 
     # Asegura que el hilo de limpieza automática esté corriendo.
     ensure_cleanup_thread()
@@ -599,6 +683,7 @@ def stop_hls_transcode(stream_id: str) -> bool:
     """
     with _lock:
         process = _processes.pop(stream_id, None)
+        _process_started_at.pop(stream_id, None)
 
     if process is None:
         return False
