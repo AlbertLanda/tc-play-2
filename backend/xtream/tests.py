@@ -997,3 +997,248 @@ class LiveHlsStatusEndpointTests(APITestCase):
         self.assertEqual(
             response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED
         )
+
+
+# --- recuperación automática de HLS muerto ------------------------
+
+class IsStreamActiveRecoveryTests(SimpleTestCase):
+    """
+    transcoder.is_stream_active(): reutiliza el HLS vivo y fuerza la
+    regeneración del muerto/dañado.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        self.addCleanup(transcoder._processes.clear)
+
+    def test_activo_si_proceso_vivo(self):
+        """process_alive=True -> activo, aunque el index esté viejo."""
+        _montar_salida_hls(self.tmp, "900", segmentos=7, edad_index=999)
+        transcoder._processes["900"] = ProcesoFalso(returncode=None)  # vivo
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertTrue(transcoder.is_stream_active("900"))
+
+    def test_activo_si_proceso_muerto_pero_live(self):
+        """
+        Sin proceso registrado (Django reinició) pero index fresco: la salida
+        sigue viva (live=True) y debe reutilizarse.
+        """
+        _montar_salida_hls(self.tmp, "901", segmentos=7, edad_index=2)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertTrue(transcoder.is_stream_active("901"))
+
+    def test_limpia_y_regenera_si_ready_pero_muerto(self):
+        """
+        ready=True + live=False (caso RPP): NO se reutiliza. Se limpia el
+        proceso zombie y la carpeta para forzar regeneración.
+        """
+        folder = _montar_salida_hls(self.tmp, "902", segmentos=7, edad_index=45)
+        transcoder._processes["902"] = ProcesoFalso(returncode=1)  # murió
+
+        with override_settings(
+            HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10, HLS_MIN_SEGMENTS=2
+        ):
+            self.assertFalse(transcoder.is_stream_active("902"))
+
+        self.assertFalse(folder.exists())               # salida borrada
+        self.assertNotIn("902", transcoder._processes)  # zombie removido
+
+    def test_limpia_y_regenera_si_danado(self):
+        """damaged=True (index con contenido pero sin .ts) -> limpiar."""
+        folder = self.tmp / "903"
+        folder.mkdir()
+        (folder / "index.m3u8").write_text("#EXTM3U")  # sin segmentos
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10):
+            self.assertFalse(transcoder.is_stream_active("903"))
+
+        self.assertFalse(folder.exists())
+
+
+class StartHlsRegeneraMuertoTests(SimpleTestCase):
+    """
+    start_hls_transcode() (lo que usa /proxy-url/) no reutiliza un HLS muerto:
+    lo limpia y relanza FFmpeg (reused=False).
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        self.addCleanup(transcoder._processes.clear)
+
+    @patch("xtream.services.transcoder.ensure_cleanup_thread")
+    @patch("xtream.services.transcoder.subprocess.Popen")
+    @patch("xtream.services.transcoder.decide_mode", return_value="transcode")
+    @patch("xtream.services.transcoder.is_ffmpeg_available", return_value=True)
+    def test_proxy_no_reutiliza_hls_muerto_y_relanza(
+        self, _mock_ffmpeg, _mock_mode, mock_popen, _mock_cleanup
+    ):
+        _montar_salida_hls(self.tmp, "904", segmentos=7, edad_index=45)
+        transcoder._processes["904"] = ProcesoFalso(returncode=1)  # muerto
+        mock_popen.return_value = ProcesoFalso(returncode=None)     # nuevo vivo
+
+        with override_settings(
+            HLS_ROOT=self.tmp,
+            HLS_ACTIVE_TTL_SECONDS=10,
+            HLS_MIN_SEGMENTS=2,
+            MAX_CONCURRENT_TRANSCODES=5,
+        ):
+            sid, reused, mode = transcoder.start_hls_transcode(
+                "http://servidor/live/u/p/904.ts", "904"
+            )
+
+        self.assertEqual(sid, "904")
+        self.assertFalse(reused)          # no reutilizó el HLS muerto
+        self.assertEqual(mode, "transcode")
+        mock_popen.assert_called_once()   # relanzó FFmpeg
+
+
+class RecoveryRequiredStatusTests(SimpleTestCase):
+    """get_hls_status(): campo recovery_required."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        self.addCleanup(transcoder._processes.clear)
+
+    def test_recovery_required_true_si_ready_y_no_live(self):
+        """ready=True + live=False -> recovery_required=True."""
+        _montar_salida_hls(self.tmp, "905", segmentos=7, edad_index=45)
+
+        with override_settings(
+            HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10, HLS_MIN_SEGMENTS=2
+        ):
+            data = transcoder.get_hls_status("905")
+
+        self.assertTrue(data["ready"])
+        self.assertFalse(data["live"])
+        self.assertTrue(data["recovery_required"])
+
+    def test_recovery_required_false_si_live(self):
+        """Salida viva (live=True) -> no requiere recuperación."""
+        _montar_salida_hls(self.tmp, "906", segmentos=7, edad_index=2)
+
+        with override_settings(
+            HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10, HLS_MIN_SEGMENTS=2
+        ):
+            data = transcoder.get_hls_status("906")
+
+        self.assertTrue(data["live"])
+        self.assertFalse(data["recovery_required"])
+
+
+class LiveProxyUrlRecoveryEndpointTests(APITestCase):
+    """
+    Endpoint POST /api/xtream/live/proxy-url/ frente a una salida MUERTA.
+
+    Confirmación literal del entregable Día 12: "/proxy-url/ regenera cuando
+    live=False". Se monta un HLS muerto (ready=True + live=False) en disco con
+    un proceso zombie y se golpea el endpoint real; debe NO reutilizar, relanzar
+    FFmpeg y responder reused=False con una hls_url nueva.
+    """
+
+    def setUp(self):
+        self.url = reverse("live_proxy_url")
+        self.payload = {
+            "username": "cliente.demo",
+            "password": "cualquiera",
+            "stream_id": "65",
+        }
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        self.addCleanup(transcoder._processes.clear)
+
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch("xtream.services.transcoder.ensure_cleanup_thread")
+    @patch("xtream.services.transcoder.subprocess.Popen")
+    @patch("xtream.services.transcoder.decide_mode", return_value="transcode")
+    @patch("xtream.services.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_proxy_url_regenera_si_live_false(
+        self, mock_client, _mock_ffmpeg, _mock_mode, mock_popen,
+        _mock_cleanup, _mock_wait,
+    ):
+        # HLS muerto en disco (ready=True + live=False) + proceso zombie.
+        _montar_salida_hls(self.tmp, "65", segmentos=7, edad_index=45)
+        transcoder._processes["65"] = ProcesoFalso(returncode=1)
+        mock_popen.return_value = ProcesoFalso(returncode=None)  # FFmpeg nuevo
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "http://servidor/live/cliente.demo/cualquiera/65.ts"
+        )
+
+        with override_settings(
+            HLS_ROOT=self.tmp,
+            HLS_ACTIVE_TTL_SECONDS=10,
+            HLS_MIN_SEGMENTS=2,
+            MAX_CONCURRENT_TRANSCODES=5,
+        ):
+            response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertFalse(response.data["reused"])    # NO reutilizó el muerto
+        self.assertEqual(response.data["mode"], "transcode")
+        self.assertEqual(response.data["stream_id"], "65")
+        self.assertIn("hls/65/index.m3u8", response.data["hls_url"])
+        mock_popen.assert_called_once()              # relanzó FFmpeg
+
+
+class ProcessUptimeTests(SimpleTestCase):
+    """
+    get_hls_status(): campo uptime_seconds / uptime_minutes (cuánto lleva
+    corriendo el proceso FFmpeg del canal).
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        transcoder._process_started_at.clear()
+        self.addCleanup(transcoder._processes.clear)
+        self.addCleanup(transcoder._process_started_at.clear)
+
+    def test_uptime_none_sin_proceso(self):
+        """Sin proceso registrado -> uptime None (aunque la salida esté viva)."""
+        _montar_salida_hls(self.tmp, "910", segmentos=7, edad_index=2)
+
+        with override_settings(
+            HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10, HLS_MIN_SEGMENTS=2
+        ):
+            data = transcoder.get_hls_status("910")
+
+        self.assertIsNone(data["uptime_seconds"])
+        self.assertIsNone(data["uptime_minutes"])
+
+    def test_uptime_cuenta_desde_el_arranque(self):
+        """Proceso vivo lanzado hace 120s -> uptime ~120s / ~2.0 min."""
+        _montar_salida_hls(self.tmp, "911", segmentos=7, edad_index=2)
+        transcoder._processes["911"] = ProcesoFalso(returncode=None)  # vivo
+        transcoder._process_started_at["911"] = time.time() - 120
+
+        with override_settings(
+            HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10, HLS_MIN_SEGMENTS=2
+        ):
+            data = transcoder.get_hls_status("911")
+
+        self.assertAlmostEqual(data["uptime_seconds"], 120, delta=2)
+        self.assertAlmostEqual(data["uptime_minutes"], 2.0, delta=0.1)
+
+    def test_uptime_none_si_proceso_murio(self):
+        """Proceso ya terminado -> uptime None (dejó de correr con normalidad)."""
+        _montar_salida_hls(self.tmp, "912", segmentos=7, edad_index=2)
+        transcoder._processes["912"] = ProcesoFalso(returncode=1)  # murió
+        transcoder._process_started_at["912"] = time.time() - 60
+
+        with override_settings(
+            HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=10, HLS_MIN_SEGMENTS=2
+        ):
+            data = transcoder.get_hls_status("912")
+
+        self.assertIsNone(data["uptime_seconds"])

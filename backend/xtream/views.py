@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
@@ -6,6 +8,9 @@ from .services.client import XtreamClient
 from .services import transcoder
 from .normalizers import normalize_login, normalize_categories, normalize_channels
 from .errors import build_error_response
+
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(["POST"])
@@ -235,6 +240,16 @@ def live_proxy_url(request):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+        # Log técnico seguro: refleja si el HLS se reutilizó o se (re)generó.
+        # No expone usuario, contraseña ni la URL original del stream.
+        logger.info(
+            "proxy_url stream_id=%s reason=%s hls_reused=%s mode=%s",
+            safe_stream_id,
+            "reused_live_hls" if reused else "regenerated_hls",
+            reused,
+            mode,
+        )
 
         return Response({
             "success": True,
