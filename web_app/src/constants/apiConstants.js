@@ -6,7 +6,11 @@ export const API_ENDPOINTS = {
   liveStreams: `${API_BASE_URL}/api/xtream/live/streams/`,
   streamUrl: `${API_BASE_URL}/api/xtream/live/stream-url/`,
   proxyUrl: `${API_BASE_URL}/api/xtream/live/proxy-url/`,
+  stopProxy: `${API_BASE_URL}/api/xtream/live/stop-proxy/`,
+  hlsStatus: (streamId) =>
+    `${API_BASE_URL}/api/xtream/live/hls-status/${streamId}/`,
 
   astraChannels: `${API_BASE_URL}/api/astra/channels/`,
   astraProxyUrl: `${API_BASE_URL}/api/astra/proxy-url/`,
+  astraStopProxy: `${API_BASE_URL}/api/astra/stop-proxy/`,
 };

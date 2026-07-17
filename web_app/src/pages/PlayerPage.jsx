@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
-import { getStreamUrl } from '../api/liveTvApi';
-import { getAstraProxyUrl } from '../api/astraApi';
+import { getProxyStreamUrl, stopProxy } from '../api/liveTvApi';
+import { getAstraProxyUrl, stopAstraProxy } from '../api/astraApi';
 
 export function PlayerPage({ session, channel, onBack }) {
   const videoRef = useRef(null);
@@ -36,20 +36,19 @@ export function PlayerPage({ session, channel, onBack }) {
     }
   }
 
-  async function loadUrl(output) {
+  async function loadUrl() {
     if (channel?.isAstra && channel?.stream_url) {
       console.log('[TC Play] Stream URL Astra:', channel.stream_url);
       return channel.stream_url;
     }
 
-    const url = await getStreamUrl(
+    const url = await getProxyStreamUrl(
       session.username,
       session.password,
       channel.id,
-      output,
     );
 
-    console.log(`[TC Play] Stream URL ${output}:`, url);
+    console.log('[TC Play] Proxy URL Xtream:', url);
     return url;
   }
 
@@ -353,6 +352,22 @@ export function PlayerPage({ session, channel, onBack }) {
     };
   }, [streamUrl, playerMode]);
 
+    async function handleBack() {
+      try {
+        if (channel?.isAstra && channel?.id) {
+          await stopAstraProxy(channel.id);
+        }
+
+        if (!channel?.isAstra && channel?.id) {
+          await stopProxy(channel.id);
+        }
+      } catch (error) {
+        console.warn('[TC Play] No se pudo cerrar el proxy:', error);
+      } finally {
+        onBack();
+      }
+    }
+
   return (
     <main className="player-layout">
       <header className="home-header">
@@ -361,7 +376,7 @@ export function PlayerPage({ session, channel, onBack }) {
           <p>Reproducción en vivo - TC Play 2.0</p>
         </div>
 
-        <button type="button" onClick={onBack}>
+        <button type="button" onClick={handleBack}>
           Volver
         </button>
       </header>

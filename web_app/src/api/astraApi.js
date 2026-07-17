@@ -31,3 +31,23 @@ export async function getAstraProxyUrl(channelId) {
 
   return data.hls_url;
 }
+
+export async function stopAstraProxy(channelId) {
+  const response = await fetch(API_ENDPOINTS.astraStopProxy, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      channel_id: channelId,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.message || 'No se pudo detener el proxy de Astra.');
+  }
+
+  return data;
+}

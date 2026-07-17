@@ -77,3 +77,57 @@ export async function getStreamUrl(username, password, streamId, output = 'm3u8'
 
   return data.stream_url;
 }
+
+export async function getProxyStreamUrl(username, password, streamId) {
+  const response = await fetch(API_ENDPOINTS.proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      username,
+      password,
+      stream_id: streamId,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.message || 'No se pudo generar el proxy del canal.');
+  }
+
+  return data.hls_url;
+}
+
+export async function stopProxy(streamId) {
+  const response = await fetch(API_ENDPOINTS.stopProxy, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      stream_id: streamId,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.message || 'No se pudo detener el proxy del canal.');
+  }
+
+  return data;
+}
+
+export async function getHlsStatus(streamId) {
+  const response = await fetch(API_ENDPOINTS.hlsStatus(streamId));
+  const data = await response.json();
+
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.message || 'No se pudo obtener el estado HLS.');
+  }
+
+  return data;
+}
+
