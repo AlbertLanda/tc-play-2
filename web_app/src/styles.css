@@ -454,3 +454,62 @@ input {
   color: #b00020;
   background: #ffe4e8;
 }
+
+.player-box {
+  position: relative;
+  overflow: hidden;
+}
+
+.player-signal-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 18px;
+  z-index: 5;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.signal-loader {
+  width: 42px;
+  height: 42px;
+  border: 4px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #42d600;
+  border-radius: 999px;
+  animation: signal-spin 0.9s linear infinite;
+}
+
+@keyframes signal-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.retry-button {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: #42d600;
+  color: #070027;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.retry-button:hover {
+  transform: translateY(-1px);
+  opacity: 0.92;
+}

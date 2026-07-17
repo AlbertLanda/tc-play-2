@@ -18,6 +18,33 @@ export function PlayerPage({ session, channel, onBack }) {
   const [playerMode, setPlayerMode] = useState('hls');
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [signalMessage, setSignalMessage] = useState('');
+  const [showSignalOverlay, setShowSignalOverlay] = useState(false);
+
+  function showSignalStatus(message) {
+    setSignalMessage(message);
+    setShowSignalOverlay(true);
+  }
+
+  function hideSignalStatus() {
+    setShowSignalOverlay(false);
+    setSignalMessage('');
+  }
+
+  function getFriendlyErrorMessage(message) {
+    const normalizedMessage = String(message || '').toLowerCase();
+
+    if (
+      normalizedMessage.includes('ffmpeg') ||
+      normalizedMessage.includes('hls') ||
+      normalizedMessage.includes('transcoder') ||
+      normalizedMessage.includes('proxy')
+    ) {
+      return 'La señal de este canal no está disponible temporalmente. Intenta nuevamente en unos segundos.';
+    }
+
+    return message || 'No se pudo cargar el canal. Intenta nuevamente.';
+  }
 
   function destroyPlayers() {
     if (stallTimerRef.current) {
@@ -58,6 +85,7 @@ export function PlayerPage({ session, channel, onBack }) {
     }
 
     try {
+      showSignalStatus('Reconectando señal...');
       hasTriedTsFallbackRef.current = true;
       mediaErrorCountRef.current = 0;
       lastTimeRef.current = 0;
@@ -82,7 +110,8 @@ export function PlayerPage({ session, channel, onBack }) {
       const tsUrl = await loadUrl('ts');
       setStreamUrl(tsUrl);
     } catch (error) {
-      setErrorMessage(error.message || 'No se pudo activar el fallback.');
+      setErrorMessage(getFriendlyErrorMessage(error.message || 'No se pudo activar el fallback.'));
+      hideSignalStatus();
     }
   }
 
@@ -138,6 +167,7 @@ export function PlayerPage({ session, channel, onBack }) {
       try {
         setIsLoading(true);
         setErrorMessage('');
+        hideSignalStatus();
         setPlayerMode('hls');
 
         hasTriedTsFallbackRef.current = false;
@@ -147,7 +177,7 @@ export function PlayerPage({ session, channel, onBack }) {
         const url = await loadUrl(channel?.isAstra ? 'astra' : 'm3u8');
         setStreamUrl(url);
       } catch (error) {
-        setErrorMessage(error.message || 'No se pudo cargar el canal.');
+        setErrorMessage(getFriendlyErrorMessage(error.message || 'No se pudo cargar el canal.'));
       } finally {
         setIsLoading(false);
       }
@@ -171,6 +201,32 @@ export function PlayerPage({ session, channel, onBack }) {
 
     destroyPlayers();
     setErrorMessage('');
+
+    const handleWaiting = () => {
+      showSignalStatus('Cargando señal...');
+    };
+
+    const handleStalled = () => {
+      showSignalStatus('Recuperando señal...');
+    };
+
+    const handlePlaying = () => {
+      hideSignalStatus();
+    };
+
+    const handleCanPlay = () => {
+      hideSignalStatus();
+    };
+
+    const handleVideoError = () => {
+      showSignalStatus('Reconectando canal...');
+    };
+
+    video.addEventListener('waiting', handleWaiting);
+    video.addEventListener('stalled', handleStalled);
+    video.addEventListener('playing', handlePlaying);
+    video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('error', handleVideoError);
 
     if (playerMode === 'hls' || playerMode === 'astra-proxy') {
       if (Hls.isSupported()) {
@@ -208,6 +264,7 @@ export function PlayerPage({ session, channel, onBack }) {
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           console.log('[TC Play] HLS manifest parsed');
+          hideSignalStatus();
 
           video.play().catch((error) => {
             console.warn(
@@ -339,34 +396,74 @@ export function PlayerPage({ session, channel, onBack }) {
           }
 
           setErrorMessage(
-            'Este canal no pudo reproducirse en el navegador con HLS ni MPEG-TS.',
+            'La señal de este canal no está disponible temporalmente. Intenta nuevamente en unos segundos.',
           );
+          hideSignalStatus();
         });
       } else {
-        setErrorMessage('Este navegador no soporta reproducción MPEG-TS.');
+        setErrorMessage('Este navegador no soporta este tipo de reproducción.');
+        hideSignalStatus();
       }
     }
 
     return () => {
+      video.removeEventListener('waiting', handleWaiting);
+      video.removeEventListener('stalled', handleStalled);
+      video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('error', handleVideoError);
+
       destroyPlayers();
     };
   }, [streamUrl, playerMode]);
 
-    async function handleBack() {
-      try {
-        if (channel?.isAstra && channel?.id) {
-          await stopAstraProxy(channel.id);
-        }
-
-        if (!channel?.isAstra && channel?.id) {
-          await stopProxy(channel.id);
-        }
-      } catch (error) {
-        console.warn('[TC Play] No se pudo cerrar el proxy:', error);
-      } finally {
-        onBack();
+  async function handleBack() {
+    try {
+      if (channel?.isAstra && channel?.id) {
+        await stopAstraProxy(channel.id);
       }
+
+      if (!channel?.isAstra && channel?.id) {
+        await stopProxy(channel.id);
+      }
+    } catch (error) {
+      console.warn('[TC Play] No se pudo cerrar el proxy:', error);
+    } finally {
+      onBack();
     }
+  }
+
+  async function handleRetry() {
+    try {
+      setIsLoading(true);
+      setErrorMessage('');
+      showSignalStatus('Reintentando canal...');
+
+      destroyPlayers();
+
+      if (channel?.isAstra && playerMode === 'astra-proxy') {
+        await stopAstraProxy(channel.id);
+      }
+
+      if (!channel?.isAstra && channel?.id) {
+        await stopProxy(channel.id);
+      }
+
+      hasTriedTsFallbackRef.current = false;
+      mediaErrorCountRef.current = 0;
+      lastTimeRef.current = 0;
+
+      setPlayerMode('hls');
+
+      const url = await loadUrl();
+      setStreamUrl(url);
+    } catch (error) {
+      setErrorMessage(getFriendlyErrorMessage(error.message));
+      hideSignalStatus();
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   return (
     <main className="player-layout">
@@ -395,6 +492,13 @@ export function PlayerPage({ session, channel, onBack }) {
               >
                 Tu navegador no soporta reproducción de video.
               </video>
+
+              {showSignalOverlay && !errorMessage && (
+                <div className="player-signal-overlay">
+                  <div className="signal-loader" />
+                  <p>{signalMessage || 'Cargando señal...'}</p>
+                </div>
+              )}
             </div>
 
             <aside className="player-info">
@@ -421,9 +525,12 @@ export function PlayerPage({ session, channel, onBack }) {
               </p>
 
               {errorMessage ? (
-                <p className="warning-text error-warning">
-                  {errorMessage}
-                </p>
+                <div className="warning-text error-warning">
+                  <p>{errorMessage}</p>
+                  <button type="button" className="retry-button" onClick={handleRetry}>
+                    Reintentar canal
+                  </button>
+                </div>
               ) : (
                 <p className="warning-text">
                   {channel.isAstra
