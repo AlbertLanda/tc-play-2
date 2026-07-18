@@ -4,7 +4,15 @@ import mpegts from 'mpegts.js';
 import { getProxyStreamUrl, stopProxy } from '../api/liveTvApi';
 import { getAstraProxyUrl, stopAstraProxy } from '../api/astraApi';
 
-export function PlayerPage({ session, channel, onBack }) {
+export function PlayerPage({
+  session,
+  channel,
+  channels = [],
+  currentChannelIndex = 0,
+  onPreviousChannel,
+  onNextChannel,
+  onBack,
+}) {
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
   const tsPlayerRef = useRef(null);
@@ -13,6 +21,8 @@ export function PlayerPage({ session, channel, onBack }) {
   const mediaErrorCountRef = useRef(0);
   const lastTimeRef = useRef(0);
   const stallTimerRef = useRef(null);
+  const playerContainerRef = useRef(null);
+  const controlsTimerRef = useRef(null);
 
   const [streamUrl, setStreamUrl] = useState('');
   const [playerMode, setPlayerMode] = useState('hls');
@@ -20,6 +30,8 @@ export function PlayerPage({ session, channel, onBack }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [signalMessage, setSignalMessage] = useState('');
   const [showSignalOverlay, setShowSignalOverlay] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [showControls, setShowControls] = useState(true);
 
   function showSignalStatus(message) {
     setSignalMessage(message);
@@ -38,7 +50,9 @@ export function PlayerPage({ session, channel, onBack }) {
       normalizedMessage.includes('ffmpeg') ||
       normalizedMessage.includes('hls') ||
       normalizedMessage.includes('transcoder') ||
-      normalizedMessage.includes('proxy')
+      normalizedMessage.includes('proxy') ||
+      normalizedMessage.includes('mpeg') ||
+      normalizedMessage.includes('stream')
     ) {
       return 'La señal de este canal no está disponible temporalmente. Intenta nuevamente en unos segundos.';
     }
@@ -107,8 +121,10 @@ export function PlayerPage({ session, channel, onBack }) {
       console.warn('[TC Play] Cambiando a fallback MPEG-TS...');
       setPlayerMode('ts');
 
-      const tsUrl = await loadUrl('ts');
-      setStreamUrl(tsUrl);
+      setErrorMessage(
+        'La señal de este canal no está disponible temporalmente. Intenta nuevamente en unos segundos.',
+      );
+      hideSignalStatus();
     } catch (error) {
       setErrorMessage(getFriendlyErrorMessage(error.message || 'No se pudo activar el fallback.'));
       hideSignalStatus();
@@ -188,9 +204,23 @@ export function PlayerPage({ session, channel, onBack }) {
     }
 
     return () => {
+      if (controlsTimerRef.current) {
+        clearTimeout(controlsTimerRef.current);
+      }
+
       destroyPlayers();
     };
   }, [session.username, session.password, channel]);
+
+  useEffect(() => {
+    revealPlayerControls();
+
+    return () => {
+      if (controlsTimerRef.current) {
+        clearTimeout(controlsTimerRef.current);
+      }
+    };
+  }, [channel?.id]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -211,7 +241,12 @@ export function PlayerPage({ session, channel, onBack }) {
     };
 
     const handlePlaying = () => {
+      setIsPlaying(true);
       hideSignalStatus();
+    };
+
+    const handlePause = () => {
+      setIsPlaying(false);
     };
 
     const handleCanPlay = () => {
@@ -225,6 +260,7 @@ export function PlayerPage({ session, channel, onBack }) {
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('stalled', handleStalled);
     video.addEventListener('playing', handlePlaying);
+    video.addEventListener('pause', handlePause);
     video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('error', handleVideoError);
 
@@ -410,6 +446,7 @@ export function PlayerPage({ session, channel, onBack }) {
       video.removeEventListener('waiting', handleWaiting);
       video.removeEventListener('stalled', handleStalled);
       video.removeEventListener('playing', handlePlaying);
+      video.removeEventListener('pause', handlePause);
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('error', handleVideoError);
 
@@ -419,7 +456,7 @@ export function PlayerPage({ session, channel, onBack }) {
 
   async function handleBack() {
     try {
-      if (channel?.isAstra && channel?.id) {
+      if (channel?.isAstra && channel?.id && playerMode === 'astra-proxy') {
         await stopAstraProxy(channel.id);
       }
 
@@ -465,16 +502,109 @@ export function PlayerPage({ session, channel, onBack }) {
     }
   }
 
+  async function handlePreviousChannel() {
+    if (!onPreviousChannel) return;
+
+    try {
+      showSignalStatus('Cambiando canal...');
+
+      if (channel?.isAstra && channel?.id && playerMode === 'astra-proxy') {
+        await stopAstraProxy(channel.id);
+      }
+
+      if (!channel?.isAstra && channel?.id) {
+        await stopProxy(channel.id);
+      }
+
+      destroyPlayers();
+      onPreviousChannel();
+    } catch (error) {
+      console.warn('[TC Play] No se pudo cambiar al canal anterior:', error);
+      onPreviousChannel();
+    }
+  }
+
+  async function handleNextChannel() {
+    if (!onNextChannel) return;
+
+    try {
+      showSignalStatus('Cambiando canal...');
+
+      if (channel?.isAstra && channel?.id && playerMode === 'astra-proxy') {
+        await stopAstraProxy(channel.id);
+      }
+
+      if (!channel?.isAstra && channel?.id) {
+        await stopProxy(channel.id);
+      }
+
+      destroyPlayers();
+      onNextChannel();
+    } catch (error) {
+      console.warn('[TC Play] No se pudo cambiar al siguiente canal:', error);
+      onNextChannel();
+    }
+  }
+
+  async function handleFullscreen() {
+    const element = playerContainerRef.current;
+
+    if (!element) return;
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        return;
+      }
+
+      await element.requestFullscreen();
+    } catch (error) {
+      console.warn('[TC Play] No se pudo activar pantalla completa:', error);
+    }
+  }
+
+  async function handleTogglePlay() {
+    const video = videoRef.current;
+
+    if (!video) return;
+
+    try {
+      if (video.paused) {
+        await video.play();
+        setIsPlaying(true);
+        return;
+      }
+
+      video.pause();
+      setIsPlaying(false);
+    } catch (error) {
+      console.warn('[TC Play] No se pudo alternar reproducción:', error);
+    }
+  }
+
+  function revealPlayerControls() {
+    setShowControls(true);
+
+    if (controlsTimerRef.current) {
+      clearTimeout(controlsTimerRef.current);
+    }
+
+    controlsTimerRef.current = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+  }
+
   return (
     <main className="player-layout">
-      <header className="home-header">
+      <header className="player-header">
         <div>
+          <span className="player-kicker">TC Play 2.0</span>
           <h1>{channel?.name || 'Reproductor'}</h1>
-          <p>Reproducción en vivo - TC Play 2.0</p>
+          <p>Reproducción en vivo</p>
         </div>
 
-        <button type="button" onClick={handleBack}>
-          Volver
+        <button type="button" className="player-back-button" onClick={handleBack}>
+          ← Volver
         </button>
       </header>
 
@@ -483,11 +613,16 @@ export function PlayerPage({ session, channel, onBack }) {
 
         {!isLoading && streamUrl && (
           <div className="player-wrapper">
-            <div className="player-box">
+            <div
+              className="player-box"
+              ref={playerContainerRef}
+              onMouseMove={revealPlayerControls}
+              onClick={revealPlayerControls}
+              onTouchStart={revealPlayerControls}
+            >
               <video
                 ref={videoRef}
                 className="video-player"
-                controls
                 playsInline
               >
                 Tu navegador no soporta reproducción de video.
@@ -497,33 +632,78 @@ export function PlayerPage({ session, channel, onBack }) {
                 <div className="player-signal-overlay">
                   <div className="signal-loader" />
                   <p>{signalMessage || 'Cargando señal...'}</p>
-                </div>
+                </div>                
               )}
+
+              <div
+                className={`player-zapping-controls ${
+                  showControls ? 'player-zapping-controls-visible' : ''
+                }`}
+              >
+                <button type="button" onClick={handleTogglePlay}>
+                  {isPlaying ? '⏸ Pausa' : '▶ Play'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handlePreviousChannel}
+                  disabled={!onPreviousChannel}
+                >
+                  ← Canal
+                </button>
+
+                <div className="channel-counter">
+                  {channels.length > 0
+                    ? `${currentChannelIndex + 1} / ${channels.length}`
+                    : 'TV en vivo'}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleNextChannel}
+                  disabled={!onNextChannel}
+                >
+                  Canal →
+                </button>
+
+                <button type="button" onClick={handleFullscreen}>
+                  ⛶ Pantalla completa
+                </button>
+              </div>
             </div>
 
             <aside className="player-info">
-              <div className="channel-logo large">
-                {channel.icon || channel.logo ? (
-                  <img src={channel.icon || channel.logo} alt={channel.name} />
-                ) : (
-                  <span>📺</span>
-                )}
+              <div className="player-info-header">
+                <div className="channel-logo large">
+                  {channel.icon || channel.logo ? (
+                    <img src={channel.icon || channel.logo} alt={channel.name} />
+                  ) : (
+                    <span>📺</span>
+                  )}
+                </div>
+
+                <div>
+                  <span className="live-pill">EN VIVO</span>
+                  <h2>{channel.name}</h2>
+                </div>
               </div>
 
-              <h2>{channel.name}</h2>
-              <p>ID: {channel.id}</p>
-              <p>
-                Categoría: {channel.isAstra ? 'Astra HLS' : channel.category_id}
-              </p>
-              <p>
-                Modo:{' '}
-                {playerMode === 'astra-proxy'
-                  ? 'Astra Proxy HLS'
-                  : playerMode === 'hls'
-                    ? 'HLS'
-                    : 'MPEG-TS'}
-              </p>
+              <div className="player-meta-grid">
+                <div className="player-meta-item">
+                  <span>Estado</span>
+                  <strong>En vivo</strong>
+                </div>
 
+                <div className="player-meta-item">
+                  <span>Calidad</span>
+                  <strong>Automática</strong>
+                </div>
+
+                <div className="player-meta-item">
+                  <span>Señal</span>
+                  <strong>{errorMessage ? 'Revisar' : 'Disponible'}</strong>
+                </div>
+              </div>
               {errorMessage ? (
                 <div className="warning-text error-warning">
                   <p>{errorMessage}</p>
@@ -533,9 +713,7 @@ export function PlayerPage({ session, channel, onBack }) {
                 </div>
               ) : (
                 <p className="warning-text">
-                  {channel.isAstra
-                    ? 'Reproductor Astra. Primero intenta HLS directo; si falla, usa proxy/transcoder del backend.'
-                    : 'Reproductor web con recuperación automática. Primero intenta HLS; si no logra iniciar, prueba MPEG-TS.'}
+                  La señal se ajusta automáticamente para ofrecer una mejor reproducción.
                 </p>
               )}
             </aside>

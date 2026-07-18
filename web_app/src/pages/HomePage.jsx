@@ -3,8 +3,9 @@ import { HomeMenuCard } from '../components/HomeMenuCard';
 export function HomePage({
   session,
   onLogout,
-  onGoToCategories,
   onGoToAstra,
+  isOpeningLiveTv = false,
+  homeErrorMessage = '',
 }) {
   const username = session?.user?.username || session?.username || 'Usuario';
 
@@ -23,36 +24,33 @@ export function HomePage({
 
       <section className="home-content home-dashboard">
         <div className="home-title-block">
-          <h2>Panel principal</h2>
-          <p>Selecciona una opción para continuar.</p>
+          <h2>TV en vivo</h2>
+          <p>Disfruta tus canales en vivo al instante.</p>
         </div>
 
+        {homeErrorMessage && (
+          <div className="state-card error-state">
+            <h2>No se pudo abrir TV en vivo</h2>
+            <p>{homeErrorMessage}</p>
+          </div>
+        )}
+
         <div className="home-menu-grid">
-          <HomeMenuCard
-            icon="📺"
-            title="TV en vivo"
-            description="Explorar categorías y canales disponibles desde Xtream."
-            onClick={onGoToCategories}
-          />
-
-          <HomeMenuCard
-            icon="🛰️"
-            title="Canales Astra"
-            description="Reproducir canales HLS desde la playlist técnica de Astra."
+          <button
+            type="button"
+            className="home-menu-card home-menu-card-primary"
             onClick={onGoToAstra}
-          />
-
-          <HomeMenuCard
-            icon="🗂️"
-            title="Categorías"
-            description="Ver agrupaciones de canales por plan o contenido."
-            onClick={onGoToCategories}
-          />
+            disabled={isOpeningLiveTv}
+          >
+            <span className="home-menu-icon">📺</span>
+            <h2>{isOpeningLiveTv ? 'Abriendo TV en vivo...' : 'Ver TV en vivo'}</h2>
+            <p>Abre automáticamente un canal disponible y cambia entre señales con un toque.</p>
+          </button>
 
           <HomeMenuCard
             icon="👤"
             title="Mi cuenta"
-            description="Información básica del usuario conectado."
+            description="Consulta información básica de tu servicio."
             onClick={() => alert('Módulo de cuenta pendiente.')}
           />
         </div>
