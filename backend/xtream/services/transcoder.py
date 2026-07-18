@@ -484,21 +484,37 @@ def get_hls_status(stream_id: str) -> dict:
     }
 
 
-def probe_codecs(stream_url: str):
-    """
-    Lee el códec de video y audio del stream ORIGINAL con ffprobe, sin
-    descargar ni transcodificar (solo inspecciona los primeros paquetes).
+def _parse_fps(rate) -> float:
+    """Convierte 'num/den' (p.ej. '60000/1001') a float fps. None si no aplica."""
+    if not rate or rate == "0/0":
+        return None
+    try:
+        num, _, den = rate.partition("/")
+        den_value = float(den) if den else 1.0
+        if den_value == 0:
+            return None
+        return float(num) / den_value
+    except (ValueError, ZeroDivisionError):
+        return None
 
-    Devuelve (video_codec, audio_codec) en minúsculas, o (None, None) si no
-    se pudo determinar (ffprobe ausente, canal caído, timeout, etc.).
+
+def probe_stream_info(stream_url: str) -> dict:
+    """
+    Sondea con ffprobe el stream ORIGINAL y devuelve un dict con:
+      video_codec, audio_codec (minúsculas), height (px) y fps (float).
+    Cualquier valor es None si no se pudo determinar (ffprobe ausente, canal
+    caído, timeout, etc.). Un solo ffprobe: sirve tanto para decidir el modo
+    como para la normalización móvil por fps/resolución.
     """
     ffprobe_bin = getattr(settings, "FFPROBE_BIN", "ffprobe")
+    info = {"video_codec": None, "audio_codec": None, "height": None, "fps": None}
     try:
         result = subprocess.run(
             [
                 ffprobe_bin,
                 "-v", "error",
-                "-show_entries", "stream=codec_type,codec_name",
+                "-show_entries",
+                "stream=codec_type,codec_name,height,avg_frame_rate",
                 "-of", "json",
                 stream_url,
             ],
@@ -508,15 +524,29 @@ def probe_codecs(stream_url: str):
         )
         data = json.loads(result.stdout or b"{}")
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError):
-        return None, None
+        return info
 
-    video = audio = None
     for stream in data.get("streams", []):
-        if stream.get("codec_type") == "video" and video is None:
-            video = stream.get("codec_name")
-        elif stream.get("codec_type") == "audio" and audio is None:
-            audio = stream.get("codec_name")
-    return video, audio
+        ctype = stream.get("codec_type")
+        if ctype == "video" and info["video_codec"] is None:
+            info["video_codec"] = stream.get("codec_name")
+            info["height"] = stream.get("height")
+            info["fps"] = _parse_fps(stream.get("avg_frame_rate"))
+        elif ctype == "audio" and info["audio_codec"] is None:
+            info["audio_codec"] = stream.get("codec_name")
+    return info
+
+
+def probe_codecs(stream_url: str):
+    """
+    Lee el códec de video y audio del stream ORIGINAL con ffprobe.
+
+    Devuelve (video_codec, audio_codec) en minúsculas, o (None, None) si no
+    se pudo determinar. Envoltura de probe_stream_info() para el código que
+    solo necesita los códecs.
+    """
+    info = probe_stream_info(stream_url)
+    return info["video_codec"], info["audio_codec"]
 
 
 def is_web_compatible(video_codec, audio_codec) -> bool:
@@ -560,12 +590,29 @@ def mode_from_codecs(video_codec, audio_codec) -> str:
 
 def decide_mode(stream_url: str) -> str:
     """
-    Sondea el códec del stream original y decide cómo procesarlo, gastando la
-    menor CPU posible. Si no se puede determinar el códec, transcodifica por
-    seguridad. Ver mode_from_codecs() para la tabla de decisión.
+    Sondea el stream original y decide cómo procesarlo, gastando la menor CPU
+    posible. Si no se puede determinar el códec, transcodifica por seguridad.
+    Ver mode_from_codecs() para la tabla base de decisión.
+
+    Normalización MÓVIL: como la salida es para un celular, si el video se
+    copiaría tal cual (remux / transcode_audio) pero viene a más de
+    MOBILE_TRANSCODE_MAX_FPS (30 por defecto), se fuerza transcode completo.
+    Motivo: el decodificador de hardware del cel batalla con HD a 60fps
+    (bloques / fotogramas soltados); el transcode reescala a 720p30 limpio
+    (perfil móvil de _build_ffmpeg_command). Los 30fps/29.97 quedan intactos.
     """
-    video, audio = probe_codecs(stream_url)
-    return mode_from_codecs(video, audio)
+    info = probe_stream_info(stream_url)
+    mode = mode_from_codecs(info["video_codec"], info["audio_codec"])
+
+    max_fps = getattr(settings, "MOBILE_TRANSCODE_MAX_FPS", 30)
+    if (
+        mode in ("remux", "transcode_audio")
+        and info["video_codec"] is not None
+        and info["fps"] is not None
+        and info["fps"] > max_fps + 0.5
+    ):
+        return "transcode"
+    return mode
 
 
 def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
@@ -587,14 +634,28 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
     elif mode == "transcode_audio":
         command += ["-c:v", "copy", "-c:a", "aac"]
     else:
-        # -pix_fmt yuv420p: el decoder de hardware de Android (ExoPlayer)
-        # rechaza formatos como yuv422p o 10-bit; se fuerza 4:2:0 8-bit.
+        # Transcode a PERFIL MÓVIL: como la salida es para un celular, se
+        # recodifica a 720p / 30fps con bitrate acotado. Motivos:
+        #   - 1080p60 con libx264 no lo aguanta la CPU en tiempo real (se
+        #     atrasa -> buffering). 720p30 baja ~4.5x el trabajo de encode.
+        #   - 720p es de sobra para pantalla de cel; el bitrate acotado da
+        #     imagen limpia y estable sin saturar la red del celular.
+        #   - scale=-2:'min(720,ih)' no reescala hacia arriba si el origen ya
+        #     es menor a 720p (p.ej. canales SD).
+        # -pix_fmt yuv420p: el decoder de hardware de Android rechaza yuv422p
+        # o 10-bit; se fuerza 4:2:0 8-bit.
         command += [
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-tune", "zerolatency",
+            "-vf", "scale=-2:'min(720,ih)',fps=30",
+            "-b:v", "2500k",
+            "-maxrate", "2500k",
+            "-bufsize", "5000k",
             "-pix_fmt", "yuv420p",
+            "-g", "90",
             "-c:a", "aac",
+            "-b:a", "128k",
         ]
 
     output_path = Path(output_path).resolve()
