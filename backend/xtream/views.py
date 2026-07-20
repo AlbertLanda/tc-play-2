@@ -200,6 +200,23 @@ def live_proxy_url(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # device_profile OPCIONAL: selecciona el perfil de salida (mobile / tv /
+    # web). Si no se envía, se usa el default (mobile) para no romper la app
+    # móvil actual. Un valor no reconocido se rechaza de forma controlada.
+    try:
+        device_profile = transcoder.normalize_device_profile(
+            request.data.get("device_profile")
+        )
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_device_profile",
+                "message": "device_profile inválido. Use 'mobile', 'tv' o 'web'."
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     try:
         # URL original de Xtream (entrada para FFmpeg). Se usa el formato TS
         # crudo del canal en vivo; no se expone en la respuesta.
@@ -223,7 +240,7 @@ def live_proxy_url(request):
         # sondeando el stream (incluye la normalización móvil por fps: HD a
         # 60fps -> transcode 720p30). Ver transcoder.decide_mode().
         _, reused, mode = transcoder.start_hls_transcode(
-            source_url, safe_stream_id
+            source_url, safe_stream_id, device_profile=device_profile
         )
 
         # El transcode completo tarda más en producir el primer segmento
@@ -253,11 +270,12 @@ def live_proxy_url(request):
         # Log técnico seguro: refleja si el HLS se reutilizó o se (re)generó.
         # No expone usuario, contraseña ni la URL original del stream.
         logger.info(
-            "proxy_url stream_id=%s reason=%s hls_reused=%s mode=%s",
+            "proxy_url stream_id=%s reason=%s hls_reused=%s mode=%s device_profile=%s",
             safe_stream_id,
             "reused_live_hls" if reused else "regenerated_hls",
             reused,
             mode,
+            device_profile,
         )
 
         return Response({
@@ -265,6 +283,7 @@ def live_proxy_url(request):
             "stream_id": safe_stream_id,
             "hls_url": transcoder.build_hls_url(request, safe_stream_id),
             "mode": mode,
+            "device_profile": device_profile,
             "reused": reused,
         })
 

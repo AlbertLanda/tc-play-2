@@ -41,6 +41,83 @@ WEB_COMPATIBLE_VIDEO = {"h264"}
 WEB_COMPATIBLE_AUDIO = {"aac", "mp3"}
 
 
+# --- Perfiles de salida por dispositivo (device_profile) -------------------
+# El backend entrega una salida HLS optimizada según el tipo de dispositivo.
+# El perfil decide DOS cosas:
+#   1. normalize_fps: mobile/tv fuerzan transcode a 30fps cuando el origen
+#      viene a más de 30fps (el decoder del cel batalla con HD a 60fps y la
+#      TV prioriza estabilidad). web=False respeta el fps original (el
+#      navegador/PC decodifica 60fps sin problema).
+#   2. Los parámetros del transcode a H.264 (escala, bitrate, GOP).
+#
+# Perfil "mobile" reproduce EXACTAMENTE el comportamiento previo (720p30 /
+# 2500k / g90) para no romper la app móvil actual: es el default cuando no se
+# envía device_profile.
+DEVICE_PROFILES = {
+    "mobile": {
+        "max_height": 720,
+        "target_fps": 30,
+        "video_bitrate": "2500k",
+        "maxrate": "2500k",
+        "bufsize": "5000k",
+        "gop": "90",
+        "normalize_fps": True,
+    },
+    "tv": {
+        # TV / TV Box: COPY-FIRST. normalize_fps=False -> NO se fuerza transcode
+        # por framerate; se respeta el video original (1080p60 incluido) y solo
+        # se arregla el audio si el códec no es compatible (remux /
+        # transcode_audio). Motivo: la validación de 720p30 se hizo en un
+        # celular; el decoder de un TV Box es mucho más capaz y probablemente
+        # reproduce el 1080p60 nativo sin recodificar (CPU ~0, mejor calidad).
+        # La normalización a 720p30 queda para MÓVIL hasta medir el desempeño
+        # real en una TV con el player final.
+        #
+        # Los parámetros de transcode (720p30/3000k) se conservan como FALLBACK:
+        # si en las pruebas el player de TV muestra inestabilidad, basta poner
+        # normalize_fps=True (o forzar el modo transcode) sin tocar nada más.
+        "max_height": 720,
+        "target_fps": 30,
+        "video_bitrate": "3000k",
+        "maxrate": "3000k",
+        "bufsize": "6000k",
+        "gop": "60",
+        "normalize_fps": False,
+    },
+    "web": {
+        # Navegador/PC: perfil automático actual. No reescala ni normaliza fps;
+        # deja que decide_mode haga remux/transcode_audio y solo recodifica el
+        # video cuando el códec no es web-compatible (preservando resolución).
+        "max_height": None,
+        "target_fps": None,
+        "video_bitrate": None,
+        "maxrate": None,
+        "bufsize": None,
+        "gop": "90",
+        "normalize_fps": False,
+    },
+}
+
+DEFAULT_DEVICE_PROFILE = "mobile"
+
+
+def normalize_device_profile(value) -> str:
+    """
+    Normaliza el device_profile recibido a uno válido.
+
+    None o cadena vacía -> DEFAULT_DEVICE_PROFILE (mobile), para que la app
+    móvil actual siga funcionando sin enviar el parámetro. Un valor no
+    reconocido lanza ValueError, para que la vista responda de forma
+    controlada (invalid_device_profile) en vez de reventar.
+    """
+    if value is None or str(value).strip() == "":
+        return DEFAULT_DEVICE_PROFILE
+    profile = str(value).strip().lower()
+    if profile not in DEVICE_PROFILES:
+        raise ValueError(f"device_profile inválido: {value}")
+    return profile
+
+
 # --- Excepciones del transcoder -------------------------------------------
 # Cada una mapea a un error_code / HTTP definido en el plan del día.
 
@@ -84,6 +161,10 @@ _processes = {}
 # para calcular el uptime del proceso. Vive en memoria igual que _processes,
 # así que se pierde al reiniciar Django (uptime = None tras un reinicio).
 _process_started_at = {}
+# Mapa stream_id -> device_profile con el que se lanzó ese FFmpeg. Sirve para
+# que el diagnóstico (get_hls_status) reporte el perfil usado. Vive en memoria
+# igual que _processes, así que se pierde al reiniciar Django (profile = None).
+_process_profile = {}
 _lock = threading.Lock()
 
 # Solo se permiten stream_id alfanuméricos para construir la ruta de salida
@@ -442,6 +523,7 @@ def get_hls_status(stream_id: str) -> dict:
 
     with _lock:
         process = _processes.get(stream_id)
+        device_profile = _process_profile.get(stream_id)
     process_alive = process is not None and process.poll() is None
 
     min_segments_required = getattr(settings, "HLS_MIN_SEGMENTS", 2)
@@ -468,6 +550,7 @@ def get_hls_status(stream_id: str) -> dict:
 
     return {
         "stream_id": stream_id,
+        "device_profile": device_profile,
         "index_exists": index_exists,
         "index_size_bytes": index_size,
         "index_age_seconds": get_index_age_seconds(stream_id),
@@ -588,21 +671,29 @@ def mode_from_codecs(video_codec, audio_codec) -> str:
     return "transcode_audio"
 
 
-def decide_mode(stream_url: str) -> str:
+def decide_mode(stream_url: str, device_profile: str = DEFAULT_DEVICE_PROFILE) -> str:
     """
     Sondea el stream original y decide cómo procesarlo, gastando la menor CPU
     posible. Si no se puede determinar el códec, transcodifica por seguridad.
     Ver mode_from_codecs() para la tabla base de decisión.
 
-    Normalización MÓVIL: como la salida es para un celular, si el video se
-    copiaría tal cual (remux / transcode_audio) pero viene a más de
-    MOBILE_TRANSCODE_MAX_FPS (30 por defecto), se fuerza transcode completo.
-    Motivo: el decodificador de hardware del cel batalla con HD a 60fps
-    (bloques / fotogramas soltados); el transcode reescala a 720p30 limpio
-    (perfil móvil de _build_ffmpeg_command). Los 30fps/29.97 quedan intactos.
+    Normalización por fps (perfiles mobile/tv): si el video se copiaría tal
+    cual (remux / transcode_audio) pero viene a más de MOBILE_TRANSCODE_MAX_FPS
+    (30 por defecto), se fuerza transcode completo. Motivo: el decodificador de
+    hardware del cel batalla con HD a 60fps (bloques / fotogramas soltados) y
+    el perfil TV prioriza estabilidad; el transcode reescala a 720p30 limpio.
+    Los 30fps/29.97 quedan intactos.
+
+    Perfil web: normalize_fps=False -> respeta el fps original (el navegador/PC
+    decodifica 60fps sin problema), así que solo remux/transcode_audio según
+    el códec, sin forzar transcode por framerate.
     """
     info = probe_stream_info(stream_url)
     mode = mode_from_codecs(info["video_codec"], info["audio_codec"])
+
+    profile = DEVICE_PROFILES.get(device_profile, DEVICE_PROFILES[DEFAULT_DEVICE_PROFILE])
+    if not profile["normalize_fps"]:
+        return mode
 
     max_fps = getattr(settings, "MOBILE_TRANSCODE_MAX_FPS", 30)
     if (
@@ -615,7 +706,10 @@ def decide_mode(stream_url: str) -> str:
     return mode
 
 
-def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
+def _build_ffmpeg_command(
+    stream_url: str, output_path, mode: str,
+    device_profile: str = DEFAULT_DEVICE_PROFILE,
+) -> list:
     """
     Construye el comando FFmpeg según el modo elegido y empaqueta en HLS con
     segmentos rotatorios (sección 8 del plan).
@@ -624,7 +718,11 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
     - mode "transcode_audio": copia el video y recodifica solo el audio a AAC.
       (En streams de solo audio, -c:v copy no tiene video que copiar y la
        salida queda solo con el audio ya convertido a AAC.)
-    - mode "transcode": recodifica video a H.264 y audio a AAC.
+    - mode "transcode": recodifica video a H.264 y audio a AAC, con los
+      parámetros del perfil (device_profile): resolución/fps/bitrate.
+
+    El device_profile solo afecta al modo "transcode": mobile y tv acotan la
+    resolución y normalizan fps; web preserva resolución y fps del origen.
     """
     ffmpeg_bin = getattr(settings, "FFMPEG_BIN", "ffmpeg")
     command = [ffmpeg_bin, "-y", "-i", stream_url]
@@ -634,26 +732,46 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
     elif mode == "transcode_audio":
         command += ["-c:v", "copy", "-c:a", "aac"]
     else:
-        # Transcode a PERFIL MÓVIL: como la salida es para un celular, se
-        # recodifica a 720p / 30fps con bitrate acotado. Motivos:
-        #   - 1080p60 con libx264 no lo aguanta la CPU en tiempo real (se
-        #     atrasa -> buffering). 720p30 baja ~4.5x el trabajo de encode.
-        #   - 720p es de sobra para pantalla de cel; el bitrate acotado da
-        #     imagen limpia y estable sin saturar la red del celular.
-        #   - scale=-2:'min(720,ih)' no reescala hacia arriba si el origen ya
-        #     es menor a 720p (p.ej. canales SD).
-        # -pix_fmt yuv420p: el decoder de hardware de Android rechaza yuv422p
-        # o 10-bit; se fuerza 4:2:0 8-bit.
+        # Transcode a H.264 según el PERFIL del dispositivo:
+        #   - mobile: 720p30 / 2500k. El decoder del cel no aguanta 1080p60.
+        #   - tv:     720p30 / 3000k. Mejor calidad sin saturar CPU (fase 1).
+        #   - web:    resolución y fps originales, calidad por CRF. El
+        #             navegador/PC decodifica de sobra; solo se recodifica
+        #             porque el códec de origen no es web-compatible.
+        # scale=-2:'min(H,ih)' no reescala hacia arriba (canales SD quedan
+        # igual). -pix_fmt yuv420p: el decoder de Android rechaza yuv422p o
+        # 10-bit; se fuerza 4:2:0 8-bit (universal).
+        profile = DEVICE_PROFILES.get(
+            device_profile, DEVICE_PROFILES[DEFAULT_DEVICE_PROFILE]
+        )
+
         command += [
             "-c:v", "libx264",
             "-preset", "veryfast",
             "-tune", "zerolatency",
-            "-vf", "scale=-2:'min(720,ih)',fps=30",
-            "-b:v", "2500k",
-            "-maxrate", "2500k",
-            "-bufsize", "5000k",
+        ]
+
+        video_filters = []
+        if profile["max_height"] is not None:
+            video_filters.append(f"scale=-2:'min({profile['max_height']},ih)'")
+        if profile["target_fps"] is not None:
+            video_filters.append(f"fps={profile['target_fps']}")
+        if video_filters:
+            command += ["-vf", ",".join(video_filters)]
+
+        if profile["video_bitrate"] is not None:
+            command += [
+                "-b:v", profile["video_bitrate"],
+                "-maxrate", profile["maxrate"],
+                "-bufsize", profile["bufsize"],
+            ]
+        else:
+            # web sin bitrate objetivo: calidad constante, preserva resolución.
+            command += ["-crf", "23"]
+
+        command += [
             "-pix_fmt", "yuv420p",
-            "-g", "90",
+            "-g", profile["gop"],
             "-c:a", "aac",
             "-b:a", "128k",
         ]
@@ -672,10 +790,13 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
     return command
 
 
-def start_hls_transcode(stream_url: str, stream_id: str, forced_mode: str = None):
+def start_hls_transcode(
+    stream_url: str, stream_id: str, forced_mode: str = None,
+    device_profile: str = DEFAULT_DEVICE_PROFILE,
+):
     """
     Lanza (o reutiliza) un proceso FFmpeg que genera la salida HLS para el
-    stream_id dado.
+    stream_id dado, según el device_profile (mobile / tv / web).
 
     Devuelve una tupla (stream_id, reused: bool, mode: str|None). No bloquea
     el request: FFmpeg corre en segundo plano vía subprocess.Popen. En caso de
@@ -707,9 +828,12 @@ def start_hls_transcode(stream_url: str, stream_id: str, forced_mode: str = None
         raise HlsOutputError("No se pudo crear la carpeta HLS.") from error
 
     # ffprobe decide: remux si el códec ya es compatible con web, transcode
-    # si no. Así solo se gasta CPU cuando realmente hace falta.
-    mode = forced_mode or decide_mode(stream_url)
-    command = _build_ffmpeg_command(stream_url, _index_path(stream_id), mode)
+    # si no (y según el perfil, se normaliza fps). Así solo se gasta CPU
+    # cuando realmente hace falta.
+    mode = forced_mode or decide_mode(stream_url, device_profile)
+    command = _build_ffmpeg_command(
+        stream_url, _index_path(stream_id), mode, device_profile
+    )
 
     try:
         process = subprocess.Popen(
@@ -723,6 +847,7 @@ def start_hls_transcode(stream_url: str, stream_id: str, forced_mode: str = None
     with _lock:
         _processes[stream_id] = process
         _process_started_at[stream_id] = time.time()
+        _process_profile[stream_id] = device_profile
 
     # Asegura que el hilo de limpieza automática esté corriendo.
     ensure_cleanup_thread()
@@ -745,6 +870,7 @@ def stop_hls_transcode(stream_id: str) -> bool:
     with _lock:
         process = _processes.pop(stream_id, None)
         _process_started_at.pop(stream_id, None)
+        _process_profile.pop(stream_id, None)
 
     if process is None:
         return False

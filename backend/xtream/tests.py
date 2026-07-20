@@ -212,6 +212,49 @@ class LiveProxyUrlTests(APITestCase):
 
     @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
     @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_device_profile_default_mobile(self, mock_start, mock_wait):
+        """Sin device_profile -> se usa 'mobile' y se refleja en la respuesta."""
+        mock_start.return_value = ("123", False, "transcode")
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["device_profile"], "mobile")
+        # start_hls_transcode debe recibir device_profile='mobile'.
+        self.assertEqual(
+            mock_start.call_args.kwargs.get("device_profile"), "mobile"
+        )
+
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_device_profile_tv(self, mock_start, mock_wait):
+        """device_profile='tv' -> se propaga al transcoder y a la respuesta."""
+        mock_start.return_value = ("123", False, "transcode")
+        payload = dict(self.payload, device_profile="tv")
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["device_profile"], "tv")
+        self.assertEqual(
+            mock_start.call_args.kwargs.get("device_profile"), "tv"
+        )
+
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_device_profile_invalido(self, mock_start):
+        """device_profile no reconocido -> invalid_device_profile (400)."""
+        payload = dict(self.payload, device_profile="playstation")
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data["error_code"], "invalid_device_profile"
+        )
+        mock_start.assert_not_called()
+
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch("xtream.views.transcoder.start_hls_transcode")
     def test_no_filtra_credenciales(self, mock_start, mock_wait):
         """La respuesta no debe contener la contraseña ni la URL original."""
         mock_start.return_value = ("123", False, "remux")
@@ -419,6 +462,89 @@ class TranscoderModeTests(SimpleTestCase):
         """El modo transcode fuerza -pix_fmt yuv420p (compatibilidad Android)."""
         cmd = transcoder._build_ffmpeg_command("http://x", "out.m3u8", "transcode")
         self.assertEqual(cmd[cmd.index("-pix_fmt") + 1], "yuv420p")
+
+    # --- Perfiles por dispositivo (device_profile) -----------------------
+
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_web_no_fuerza_transcode_a_60fps(self, mock_probe):
+        """
+        Perfil web: h264 + aac a 60fps NO se sube a transcode (el navegador/PC
+        decodifica 60fps). Se queda en remux, a diferencia de mobile/tv.
+        """
+        mock_probe.return_value = self._info("h264", "aac", fps=59.94)
+        self.assertEqual(
+            transcoder.decide_mode("http://x", device_profile="web"), "remux"
+        )
+
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_tv_copy_first_no_fuerza_transcode_a_60fps(self, mock_probe):
+        """
+        Perfil tv (copy-first): h264 + aac a 60fps NO se sube a transcode; se
+        respeta el video original (remux). La normalización 720p30 es solo
+        para móvil hasta validar el desempeño en una TV real.
+        """
+        mock_probe.return_value = self._info("h264", "aac", fps=59.94)
+        self.assertEqual(
+            transcoder.decide_mode("http://x", device_profile="tv"), "remux"
+        )
+
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_tv_copy_first_solo_arregla_audio(self, mock_probe):
+        """
+        Perfil tv (copy-first): h264 + mp2 a 60fps -> transcode_audio (copia el
+        video 1080p60, solo convierte el audio a AAC), NO transcode de video.
+        """
+        mock_probe.return_value = self._info("h264", "mp2", fps=59.94)
+        self.assertEqual(
+            transcoder.decide_mode("http://x", device_profile="tv"),
+            "transcode_audio",
+        )
+
+    def test_build_command_mobile_720p30_2500k(self):
+        """Perfil mobile: escala a 720p, fps=30 y bitrate 2500k."""
+        cmd = transcoder._build_ffmpeg_command(
+            "http://x", "out.m3u8", "transcode", device_profile="mobile"
+        )
+        vf = cmd[cmd.index("-vf") + 1]
+        self.assertIn("min(720,ih)", vf)
+        self.assertIn("fps=30", vf)
+        self.assertEqual(cmd[cmd.index("-b:v") + 1], "2500k")
+
+    def test_build_command_tv_720p30_3000k(self):
+        """Perfil tv: escala a 720p, fps=30 y bitrate mayor (3000k)."""
+        cmd = transcoder._build_ffmpeg_command(
+            "http://x", "out.m3u8", "transcode", device_profile="tv"
+        )
+        vf = cmd[cmd.index("-vf") + 1]
+        self.assertIn("min(720,ih)", vf)
+        self.assertIn("fps=30", vf)
+        self.assertEqual(cmd[cmd.index("-b:v") + 1], "3000k")
+
+    def test_build_command_web_preserva_resolucion_y_fps(self):
+        """
+        Perfil web en transcode: NO reescala ni normaliza fps (sin -vf) y usa
+        calidad por CRF (sin -b:v). Preserva la señal original.
+        """
+        cmd = transcoder._build_ffmpeg_command(
+            "http://x", "out.m3u8", "transcode", device_profile="web"
+        )
+        self.assertIn("libx264", cmd)
+        self.assertNotIn("-vf", cmd)
+        self.assertNotIn("-b:v", cmd)
+        self.assertIn("-crf", cmd)
+
+    def test_normalize_device_profile_default_y_validos(self):
+        """None/'' -> mobile (default); mobile/tv/web válidos (case-insensitive)."""
+        self.assertEqual(transcoder.normalize_device_profile(None), "mobile")
+        self.assertEqual(transcoder.normalize_device_profile(""), "mobile")
+        self.assertEqual(transcoder.normalize_device_profile("tv"), "tv")
+        self.assertEqual(transcoder.normalize_device_profile("TV"), "tv")
+        self.assertEqual(transcoder.normalize_device_profile("web"), "web")
+
+    def test_normalize_device_profile_invalido_lanza(self):
+        """Un perfil no reconocido lanza ValueError."""
+        with self.assertRaises(ValueError):
+            transcoder.normalize_device_profile("consola")
 
 
 class TranscoderLifecycleTests(SimpleTestCase):
