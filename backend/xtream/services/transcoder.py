@@ -217,9 +217,13 @@ def build_hls_url(request, stream_id: str) -> str:
 
 def is_hls_output_damaged(stream_id: str) -> bool:
     """
-    True si la salida HLS existe pero está dañada: index.m3u8 vacío o
-    carpeta sin ningún segmento .ts. Una salida dañada no debe reutilizarse;
-    hay que limpiarla y regenerarla.
+    True si la salida HLS existe pero no sirve para TV en vivo:
+    - index.m3u8 vacío,
+    - carpeta sin segmentos .ts,
+    - playlist cerrada con #EXT-X-ENDLIST.
+
+    En TV en vivo, #EXT-X-ENDLIST significa que FFmpeg terminó y la salida
+    ya no se renovará; no debe reutilizarse.
     """
     index = _index_path(stream_id)
     if not index.exists():
@@ -228,7 +232,14 @@ def is_hls_output_damaged(stream_id: str) -> bool:
     if index.stat().st_size == 0:
         return True
 
-    # index con contenido pero sin segmentos en disco -> playlist rota.
+    try:
+        content = index.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return True
+
+    if "#EXT-X-ENDLIST" in content:
+        return True
+
     segments = list(_hls_dir(stream_id).glob("*.ts"))
     return len(segments) == 0
 
@@ -627,7 +638,13 @@ def _build_ffmpeg_command(stream_url: str, output_path, mode: str) -> list:
     - mode "transcode": recodifica video a H.264 y audio a AAC.
     """
     ffmpeg_bin = getattr(settings, "FFMPEG_BIN", "ffmpeg")
-    command = [ffmpeg_bin, "-y", "-i", stream_url]
+    command = [
+        ffmpeg_bin,
+        "-y",
+        "-fflags", "+genpts+discardcorrupt",
+        "-err_detect", "ignore_err",
+        "-i", stream_url,
+    ]
 
     if mode == "remux":
         command += ["-c", "copy"]
