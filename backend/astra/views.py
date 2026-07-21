@@ -103,14 +103,23 @@ def astra_proxy_url(request):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        stream_id, reused, mode = transcoder.start_hls_transcode(
+        # Astra tiene una única salida y conserva su clave histórica
+        # ("astra-5") para no cambiar sus rutas ni su contrato. Xtream, que sí
+        # ofrece varios perfiles, usa claves como "123-mobile" y "123-tv".
+        #
+        # No se pasa device_profile a propósito: se mantiene el default y con
+        # él los parámetros de FFmpeg que Astra ya venía usando. Cambiar su
+        # preset de codificación es una decisión aparte, ajena al aislamiento
+        # de perfiles.
+        output_key, reused, mode = transcoder.start_hls_transcode(
             stream_url=stream_url,
             stream_id=safe_channel_id,
             forced_mode="transcode",
+            output_key=safe_channel_id,
         )
 
-        if not reused and not transcoder.wait_for_hls_index(stream_id):
-            transcoder.stop_hls_transcode(stream_id)
+        if not reused and not transcoder.wait_for_hls_index(output_key):
+            transcoder.stop_hls_transcode(output_key)
 
             return Response(
                 {
@@ -126,7 +135,7 @@ def astra_proxy_url(request):
                 "success": True,
                 "channel_id": safe_channel_id,
                 "channel_name": channel.get("name"),
-                "hls_url": transcoder.build_hls_url(request, stream_id),
+                "hls_url": transcoder.build_hls_url(request, output_key),
                 "mode": mode or "reused",
                 "reused": reused,
                 "source": "astra_proxy",
@@ -197,6 +206,9 @@ def astra_stop_proxy(request):
         )
 
     try:
+        # Astra conserva el channel_id como clave estable de su única salida.
+        # No agrega sufijos de perfil porque no expone perfiles al cliente, y
+        # es la misma clave con la que su propio proxy-url lanzó FFmpeg.
         stopped = transcoder.stop_hls_transcode(safe_channel_id)
         # Se borra también la salida HLS: si quedara un index.m3u8 "fresco",
         # un proxy-url inmediato lo reutilizaría aunque ya no haya proceso.

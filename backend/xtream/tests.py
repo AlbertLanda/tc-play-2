@@ -637,8 +637,11 @@ class LiveStopProxyTests(APITestCase):
         self.assertTrue(response.data["stopped"])
         self.assertTrue(response.data["output_removed"])
         self.assertEqual(response.data["stream_id"], "41")
-        mock_stop.assert_called_once_with("41")
-        mock_remove.assert_called_once_with("41")
+        # Sin device_profile explícito se detiene la salida mobile (default),
+        # no un "41" genérico: la limpieza es por perfil.
+        self.assertEqual(response.data["device_profile"], "mobile")
+        mock_stop.assert_called_once_with("41-mobile")
+        mock_remove.assert_called_once_with("41-mobile")
 
     @patch("xtream.views.transcoder.remove_hls_output", return_value=False)
     @patch("xtream.views.transcoder.stop_hls_transcode", return_value=False)
@@ -915,13 +918,28 @@ class ProcesoFalso:
     """
     Doble de subprocess.Popen. poll() devuelve None si el proceso sigue
     corriendo, o un returncode si ya terminó.
+
+    terminate()/wait()/kill() permiten usarlo con stop_hls_transcode(), que
+    apaga de verdad el proceso; ``terminado`` deja constancia de que se pidió
+    la parada.
     """
 
     def __init__(self, returncode=None):
         self.returncode = returncode
+        self.terminado = False
 
     def poll(self):
         return self.returncode
+
+    def terminate(self):
+        self.terminado = True
+        self.returncode = 0
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):
+        self.terminate()
 
 
 def _montar_salida_hls(root, stream_id, segmentos=7, edad_index=0.0):
@@ -1230,8 +1248,8 @@ class StartHlsRegeneraMuertoTests(SimpleTestCase):
     def test_proxy_no_reutiliza_hls_muerto_y_relanza(
         self, _mock_ffmpeg, _mock_mode, mock_popen, _mock_cleanup
     ):
-        _montar_salida_hls(self.tmp, "904", segmentos=7, edad_index=45)
-        transcoder._processes["904"] = ProcesoFalso(returncode=1)  # muerto
+        _montar_salida_hls(self.tmp, "904-mobile", segmentos=7, edad_index=45)
+        transcoder._processes["904-mobile"] = ProcesoFalso(returncode=1)  # muerto
         mock_popen.return_value = ProcesoFalso(returncode=None)     # nuevo vivo
 
         with override_settings(
@@ -1244,7 +1262,7 @@ class StartHlsRegeneraMuertoTests(SimpleTestCase):
                 "http://servidor/live/u/p/904.ts", "904"
             )
 
-        self.assertEqual(sid, "904")
+        self.assertEqual(sid, "904-mobile")
         self.assertFalse(reused)          # no reutilizó el HLS muerto
         self.assertEqual(mode, "transcode")
         mock_popen.assert_called_once()   # relanzó FFmpeg
@@ -1318,8 +1336,8 @@ class LiveProxyUrlRecoveryEndpointTests(APITestCase):
         _mock_cleanup, _mock_wait,
     ):
         # HLS muerto en disco (ready=True + live=False) + proceso zombie.
-        _montar_salida_hls(self.tmp, "65", segmentos=7, edad_index=45)
-        transcoder._processes["65"] = ProcesoFalso(returncode=1)
+        _montar_salida_hls(self.tmp, "65-mobile", segmentos=7, edad_index=45)
+        transcoder._processes["65-mobile"] = ProcesoFalso(returncode=1)
         mock_popen.return_value = ProcesoFalso(returncode=None)  # FFmpeg nuevo
         mock_client.return_value.build_live_stream_url.return_value = (
             "http://servidor/live/cliente.demo/cualquiera/65.ts"
@@ -1338,7 +1356,7 @@ class LiveProxyUrlRecoveryEndpointTests(APITestCase):
         self.assertFalse(response.data["reused"])    # NO reutilizó el muerto
         self.assertEqual(response.data["mode"], "transcode")
         self.assertEqual(response.data["stream_id"], "65")
-        self.assertIn("hls/65/index.m3u8", response.data["hls_url"])
+        self.assertIn("hls/65-mobile/index.m3u8", response.data["hls_url"])
         mock_popen.assert_called_once()              # relanzó FFmpeg
 
 
@@ -1394,3 +1412,362 @@ class ProcessUptimeTests(SimpleTestCase):
             data = transcoder.get_hls_status("912")
 
         self.assertIsNone(data["uptime_seconds"])
+
+
+# --- Aislamiento de la salida HLS por device_profile ----------------------
+# Regla que se valida aquí: la identidad de una salida HLS es la pareja
+# (stream_id, device_profile), NO el stream_id suelto. Antes de esta
+# separación, una TV que pedía el canal 123 reutilizaba el HLS 720p30 que
+# había dejado un celular y nunca recibía su perfil.
+
+class OutputKeyTests(SimpleTestCase):
+    """build_output_key() / split_output_key(): construcción y lectura."""
+
+    def test_key_incluye_el_perfil(self):
+        self.assertEqual(transcoder.build_output_key("123", "mobile"), "123-mobile")
+        self.assertEqual(transcoder.build_output_key("123", "tv"), "123-tv")
+        self.assertEqual(transcoder.build_output_key("123", "web"), "123-web")
+
+    def test_perfiles_distintos_dan_claves_distintas(self):
+        """El mismo stream_id con perfiles distintos NUNCA colisiona."""
+        claves = {
+            transcoder.build_output_key("123", perfil)
+            for perfil in ("mobile", "tv", "web")
+        }
+        self.assertEqual(len(claves), 3)
+
+    def test_sin_perfil_usa_mobile(self):
+        """Default mobile: la app móvil actual no envía device_profile."""
+        self.assertEqual(transcoder.build_output_key("123"), "123-mobile")
+        self.assertEqual(transcoder.build_output_key("123", None), "123-mobile")
+        self.assertEqual(transcoder.build_output_key("123", ""), "123-mobile")
+
+    def test_perfil_invalido_lanza_valueerror(self):
+        with self.assertRaises(ValueError):
+            transcoder.build_output_key("123", "playstation")
+
+    def test_stream_id_peligroso_lanza_valueerror(self):
+        """La clave no puede abrir la puerta a path traversal."""
+        with self.assertRaises(ValueError):
+            transcoder.build_output_key("../../etc", "tv")
+
+    def test_split_devuelve_stream_id_y_perfil(self):
+        self.assertEqual(transcoder.split_output_key("123-tv"), ("123", "tv"))
+
+    def test_split_respeta_stream_id_con_guiones(self):
+        """El corte es por el ULTIMO guion y solo si el sufijo es un perfil."""
+        self.assertEqual(
+            transcoder.split_output_key("canal-01-tv"), ("canal-01", "tv")
+        )
+
+    def test_split_sin_sufijo_de_perfil_devuelve_none(self):
+        """Carpeta antigua sin perfil -> device_profile None, no un invento."""
+        self.assertEqual(transcoder.split_output_key("canal-01"), ("canal-01", None))
+
+
+class HlsAislamientoPorPerfilTests(SimpleTestCase):
+    """
+    start_hls_transcode(): la reutilización se evalúa por (stream_id, perfil).
+
+    Se mockea FFmpeg (Popen / is_ffmpeg_available / decide_mode) para no
+    depender de binarios ni de streams reales.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        self.addCleanup(transcoder._processes.clear)
+        self.addCleanup(transcoder._process_started_at.clear)
+        self.addCleanup(transcoder._process_profile.clear)
+
+    def _override(self):
+        return override_settings(
+            HLS_ROOT=self.tmp,
+            HLS_ACTIVE_TTL_SECONDS=10,
+            HLS_MIN_SEGMENTS=2,
+            MAX_CONCURRENT_TRANSCODES=5,
+        )
+
+    @patch("xtream.services.transcoder.ensure_cleanup_thread")
+    @patch("xtream.services.transcoder.subprocess.Popen")
+    @patch("xtream.services.transcoder.decide_mode", return_value="transcode")
+    @patch("xtream.services.transcoder.is_ffmpeg_available", return_value=True)
+    def test_tv_no_reutiliza_el_hls_de_mobile(
+        self, _mock_ffmpeg, _mock_mode, mock_popen, _mock_cleanup
+    ):
+        """
+        EL BUG DEL DIA: con un HLS mobile VIVO para el canal 123, la TV pide el
+        mismo canal. Debe lanzar su propio FFmpeg (reused=False) y no heredar
+        la salida móvil 720p30.
+        """
+        _montar_salida_hls(self.tmp, "123-mobile", segmentos=7, edad_index=0)
+        transcoder._processes["123-mobile"] = ProcesoFalso(returncode=None)  # vivo
+        mock_popen.return_value = ProcesoFalso(returncode=None)
+
+        with self._override():
+            key, reused, mode = transcoder.start_hls_transcode(
+                "http://servidor/live/u/p/123.ts", "123", device_profile="tv"
+            )
+
+        self.assertEqual(key, "123-tv")
+        self.assertFalse(reused)           # NO heredó la salida de mobile
+        self.assertEqual(mode, "transcode")
+        mock_popen.assert_called_once()    # lanzó su propio FFmpeg
+
+    @patch("xtream.services.transcoder.ensure_cleanup_thread")
+    @patch("xtream.services.transcoder.subprocess.Popen")
+    @patch("xtream.services.transcoder.decide_mode", return_value="remux")
+    @patch("xtream.services.transcoder.is_ffmpeg_available", return_value=True)
+    def test_mismo_stream_y_mismo_perfil_si_reutiliza(
+        self, _mock_ffmpeg, _mock_mode, mock_popen, _mock_cleanup
+    ):
+        """Dos peticiones idénticas (canal + perfil) comparten un solo FFmpeg."""
+        _montar_salida_hls(self.tmp, "123-tv", segmentos=7, edad_index=0)
+        transcoder._processes["123-tv"] = ProcesoFalso(returncode=None)  # vivo
+
+        with self._override():
+            key, reused, mode = transcoder.start_hls_transcode(
+                "http://servidor/live/u/p/123.ts", "123", device_profile="tv"
+            )
+
+        self.assertEqual(key, "123-tv")
+        self.assertTrue(reused)            # reutiliza: no duplica procesos
+        self.assertIsNone(mode)            # no se vuelve a decidir el modo
+        mock_popen.assert_not_called()
+
+    @patch("xtream.services.transcoder.ensure_cleanup_thread")
+    @patch("xtream.services.transcoder.subprocess.Popen")
+    @patch("xtream.services.transcoder.decide_mode", return_value="transcode")
+    @patch("xtream.services.transcoder.is_ffmpeg_available", return_value=True)
+    def test_cada_perfil_escribe_en_su_propia_carpeta(
+        self, _mock_ffmpeg, _mock_mode, mock_popen, _mock_cleanup
+    ):
+        """Los tres perfiles del mismo canal conviven en disco sin pisarse."""
+        mock_popen.return_value = ProcesoFalso(returncode=None)
+
+        with self._override():
+            for perfil in ("mobile", "tv", "web"):
+                transcoder.start_hls_transcode(
+                    "http://servidor/live/u/p/123.ts", "123", device_profile=perfil
+                )
+
+        for perfil in ("mobile", "tv", "web"):
+            self.assertTrue(
+                (self.tmp / f"123-{perfil}").is_dir(),
+                f"falta la carpeta HLS del perfil {perfil}",
+            )
+        self.assertEqual(mock_popen.call_count, 3)  # un FFmpeg por perfil
+
+    @patch("xtream.services.transcoder.ensure_cleanup_thread")
+    @patch("xtream.services.transcoder.subprocess.Popen")
+    @patch("xtream.services.transcoder.decide_mode", return_value="transcode")
+    @patch("xtream.services.transcoder.is_ffmpeg_available", return_value=True)
+    def test_perfil_invalido_lanza_error_controlado(
+        self, _mock_ffmpeg, _mock_mode, mock_popen, _mock_cleanup
+    ):
+        """Un perfil desconocido no lanza FFmpeg: se corta antes con ValueError."""
+        with self._override(), self.assertRaises(ValueError):
+            transcoder.start_hls_transcode(
+                "http://servidor/live/u/p/123.ts", "123",
+                device_profile="playstation",
+            )
+
+        mock_popen.assert_not_called()
+
+    def test_detener_un_perfil_no_afecta_al_otro(self):
+        """stop/remove de la salida TV deja intacta la del celular."""
+        _montar_salida_hls(self.tmp, "123-mobile", segmentos=7)
+        _montar_salida_hls(self.tmp, "123-tv", segmentos=7)
+        proceso_mobile = ProcesoFalso(returncode=None)
+        transcoder._processes["123-mobile"] = proceso_mobile
+        transcoder._processes["123-tv"] = ProcesoFalso(returncode=None)
+
+        with self._override():
+            self.assertTrue(transcoder.stop_hls_transcode("123-tv"))
+            self.assertTrue(transcoder.remove_hls_output("123-tv"))
+
+        self.assertFalse((self.tmp / "123-tv").exists())
+        self.assertTrue((self.tmp / "123-mobile").is_dir())
+        self.assertIs(transcoder._processes.get("123-mobile"), proceso_mobile)
+        self.assertFalse(proceso_mobile.terminado)  # su FFmpeg sigue vivo
+
+    def test_status_reporta_el_perfil_de_la_salida(self):
+        """get_hls_status() informa a qué device_profile pertenece la salida."""
+        _montar_salida_hls(self.tmp, "123-tv", segmentos=7)
+
+        with self._override():
+            data = transcoder.get_hls_status("123-tv")
+
+        self.assertEqual(data["stream_id"], "123")
+        self.assertEqual(data["device_profile"], "tv")
+        self.assertTrue(data["ready"])
+
+    def test_status_reporta_perfil_sin_registro_en_memoria(self):
+        """
+        El perfil sale de la CLAVE, no del registro en memoria: sigue siendo
+        correcto tras reiniciar Django (cuando _processes queda vacío).
+        """
+        _montar_salida_hls(self.tmp, "123-web", segmentos=7)
+        transcoder._processes.clear()
+        transcoder._process_profile.clear()
+
+        with self._override():
+            data = transcoder.get_hls_status("123-web")
+
+        self.assertEqual(data["device_profile"], "web")
+        self.assertFalse(data["process_alive"])
+
+    def test_monitoreo_lista_cada_perfil_por_separado(self):
+        """get_transcoder_status() distingue las salidas por perfil."""
+        _montar_salida_hls(self.tmp, "123-mobile", segmentos=7)
+        _montar_salida_hls(self.tmp, "123-tv", segmentos=7)
+
+        with self._override():
+            data = transcoder.get_transcoder_status()
+
+        perfiles = {
+            (o["stream_id"], o["device_profile"]) for o in data["outputs"]
+        }
+        self.assertEqual(perfiles, {("123", "mobile"), ("123", "tv")})
+
+    def test_cleanup_sigue_limpiando_con_claves_por_perfil(self):
+        """
+        La limpieza automática recorre HLS_ROOT a UN nivel; con la convención
+        plana "123-tv" sigue encontrando y borrando las salidas inactivas.
+        """
+        _montar_salida_hls(self.tmp, "123-tv", segmentos=7, edad_index=9999)
+        _montar_salida_hls(self.tmp, "123-mobile", segmentos=7, edad_index=0)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_CLEANUP_TTL_SECONDS=300):
+            limpiados = transcoder.cleanup_inactive()
+
+        self.assertEqual(limpiados, ["123-tv"])       # inactiva: borrada
+        self.assertFalse((self.tmp / "123-tv").exists())
+        self.assertTrue((self.tmp / "123-mobile").is_dir())  # fresca: intacta
+
+
+class ProxyUrlPerfilesEndpointTests(APITestCase):
+    """
+    Prueba manual mínima del plan, automatizada: tres POST a /proxy-url/ con
+    el MISMO stream_id cambiando solo device_profile deben devolver tres
+    hls_url distintas.
+    """
+
+    def setUp(self):
+        self.url = reverse("live_proxy_url")
+        self.payload = {
+            "username": "cliente.demo",
+            "password": "cualquiera",
+            "stream_id": "123",
+        }
+
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_tres_perfiles_devuelven_tres_urls_distintas(
+        self, mock_start, _mock_wait
+    ):
+        urls = {}
+        for perfil in ("mobile", "tv", "web"):
+            mock_start.return_value = (f"123-{perfil}", False, "transcode")
+            response = self.client.post(
+                self.url, dict(self.payload, device_profile=perfil), format="json"
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.data["device_profile"], perfil)
+            self.assertEqual(response.data["stream_id"], "123")
+            self.assertIn(f"hls/123-{perfil}/index.m3u8", response.data["hls_url"])
+            urls[perfil] = response.data["hls_url"]
+
+        self.assertEqual(len(set(urls.values())), 3, f"URLs cruzadas: {urls}")
+
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_sin_device_profile_la_url_es_la_de_mobile(
+        self, mock_start, _mock_wait
+    ):
+        """Compatibilidad: la app móvil actual no envía device_profile."""
+        mock_start.return_value = ("123-mobile", False, "remux")
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["device_profile"], "mobile")
+        self.assertIn("hls/123-mobile/index.m3u8", response.data["hls_url"])
+
+    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_reused_true_con_el_mismo_perfil(self, mock_start, _mock_wait):
+        """El contrato conserva reused para el mismo canal + mismo perfil."""
+        mock_start.return_value = ("123-tv", True, None)
+
+        response = self.client.post(
+            self.url, dict(self.payload, device_profile="tv"), format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["reused"])
+        self.assertEqual(response.data["device_profile"], "tv")
+        self.assertIn("hls/123-tv/index.m3u8", response.data["hls_url"])
+
+
+class StopProxyPerfilTests(APITestCase):
+    """POST /stop-proxy/ limpia la salida del perfil indicado, no todas."""
+
+    def setUp(self):
+        self.url = reverse("live_stop_proxy")
+
+    @patch("xtream.views.transcoder.remove_hls_output", return_value=True)
+    @patch("xtream.views.transcoder.stop_hls_transcode", return_value=True)
+    def test_detiene_solo_el_perfil_pedido(self, mock_stop, mock_remove):
+        response = self.client.post(
+            self.url, {"stream_id": "123", "device_profile": "tv"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["device_profile"], "tv")
+        mock_stop.assert_called_once_with("123-tv")
+        mock_remove.assert_called_once_with("123-tv")
+
+    def test_perfil_invalido_devuelve_400(self):
+        response = self.client.post(
+            self.url,
+            {"stream_id": "123", "device_profile": "playstation"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "invalid_device_profile")
+
+
+class HlsStatusEndpointPerfilTests(APITestCase):
+    """GET /hls-status/<stream_id>/?device_profile=... consulta por perfil."""
+
+    @patch("xtream.views.transcoder.get_hls_status")
+    def test_query_param_selecciona_la_salida_del_perfil(self, mock_status):
+        mock_status.return_value = {"stream_id": "123", "device_profile": "tv"}
+        url = reverse("live_hls_status", args=["123"])
+
+        response = self.client.get(url, {"device_profile": "tv"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_status.assert_called_once_with("123-tv")
+
+    @patch("xtream.views.transcoder.get_hls_status")
+    def test_sin_query_param_consulta_mobile(self, mock_status):
+        mock_status.return_value = {"stream_id": "123", "device_profile": "mobile"}
+        url = reverse("live_hls_status", args=["123"])
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_status.assert_called_once_with("123-mobile")
+
+    def test_perfil_invalido_devuelve_400(self):
+        url = reverse("live_hls_status", args=["123"])
+
+        response = self.client.get(url, {"device_profile": "playstation"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "invalid_device_profile")

@@ -239,7 +239,11 @@ def live_proxy_url(request):
         # El modo (remux / transcode_audio / transcode) lo decide el backend
         # sondeando el stream (incluye la normalización móvil por fps: HD a
         # 60fps -> transcode 720p30). Ver transcoder.decide_mode().
-        _, reused, mode = transcoder.start_hls_transcode(
+        # output_key = "<stream_id>-<device_profile>". Es la identidad real de
+        # la salida: a partir de aquí TODO (espera, diagnóstico, limpieza y
+        # URL) se hace sobre esta clave, nunca sobre el stream_id suelto, para
+        # que el HLS de un perfil no se cruce con el de otro.
+        output_key, reused, mode = transcoder.start_hls_transcode(
             source_url, safe_stream_id, device_profile=device_profile
         )
 
@@ -248,13 +252,13 @@ def live_proxy_url(request):
         # no fallar por timeout.
         ready_timeout = 40 if mode == "transcode" else 15
         if not reused and not transcoder.wait_for_hls_ready(
-            safe_stream_id, timeout_seconds=ready_timeout
+            output_key, timeout_seconds=ready_timeout
         ):
             # Se captura el diagnóstico ANTES de limpiar, para explicar por qué
             # no quedó listo (faltó index, segmentos, proceso vivo o dañado).
-            hls_status = transcoder.get_hls_status(safe_stream_id)
-            transcoder.stop_hls_transcode(safe_stream_id)
-            transcoder.remove_hls_output(safe_stream_id)
+            hls_status = transcoder.get_hls_status(output_key)
+            transcoder.stop_hls_transcode(output_key)
+            transcoder.remove_hls_output(output_key)
 
             return Response(
                 {
@@ -281,7 +285,7 @@ def live_proxy_url(request):
         return Response({
             "success": True,
             "stream_id": safe_stream_id,
-            "hls_url": transcoder.build_hls_url(request, safe_stream_id),
+            "hls_url": transcoder.build_hls_url(request, output_key),
             "mode": mode,
             "device_profile": device_profile,
             "reused": reused,
@@ -305,9 +309,13 @@ def live_proxy_url(request):
 @api_view(["POST"])
 def live_stop_proxy(request):
     """
-    Detiene el proceso FFmpeg asociado a un stream_id de Xtream y borra su
-    salida HLS, para que un canal cerrado no deje procesos vivos ni carpetas
-    muertas reutilizables. Equivalente al stop-proxy de Astra.
+    Detiene el proceso FFmpeg asociado a un canal de Xtream y borra su salida
+    HLS, para que un canal cerrado no deje procesos vivos ni carpetas muertas
+    reutilizables. Equivalente al stop-proxy de Astra.
+
+    device_profile OPCIONAL (default mobile): detiene SOLO la salida de ese
+    perfil. Cerrar el canal en la TV no debe matar el FFmpeg que está viendo
+    alguien más desde el celular.
     """
     stream_id = request.data.get("stream_id")
 
@@ -334,14 +342,30 @@ def live_stop_proxy(request):
         )
 
     try:
-        stopped = transcoder.stop_hls_transcode(safe_stream_id)
+        device_profile = transcoder.normalize_device_profile(
+            request.data.get("device_profile")
+        )
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_device_profile",
+                "message": "device_profile inválido. Use 'mobile', 'tv' o 'web'.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        output_key = transcoder.build_output_key(safe_stream_id, device_profile)
+        stopped = transcoder.stop_hls_transcode(output_key)
         # Se borra también la salida HLS: si quedara un index.m3u8 "fresco",
         # un proxy-url inmediato lo reutilizaría aunque ya no haya proceso.
-        output_removed = transcoder.remove_hls_output(safe_stream_id)
+        output_removed = transcoder.remove_hls_output(output_key)
 
         return Response({
             "success": True,
             "stream_id": safe_stream_id,
+            "device_profile": device_profile,
             "stopped": stopped,
             "output_removed": output_removed,
         })
@@ -386,12 +410,15 @@ def live_proxy_status(request):
 @api_view(["GET"])
 def live_hls_status(request, stream_id):
     """
-    Diagnóstico de la salida HLS generada por el backend para un stream_id.
+    Diagnóstico de la salida HLS generada por el backend para un canal.
 
     Informa si existe index.m3u8, su tamaño, la cantidad de segmentos .ts,
     si la salida está dañada y si el proceso FFmpeg sigue vivo. Sirve para
     diferenciar un canal que falla por HLS incompleto de uno cuyo proceso
     murió. No expone usuario, contraseña ni la URL original del stream.
+
+    El perfil se pasa como query param (?device_profile=tv) y por defecto es
+    mobile: cada perfil tiene su propia salida y por tanto su propio estado.
     """
     try:
         safe_stream_id = transcoder.sanitize_stream_id(stream_id)
@@ -406,7 +433,23 @@ def live_hls_status(request, stream_id):
         )
 
     try:
-        hls_status = transcoder.get_hls_status(safe_stream_id)
+        device_profile = transcoder.normalize_device_profile(
+            request.query_params.get("device_profile")
+        )
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_device_profile",
+                "message": "device_profile inválido. Use 'mobile', 'tv' o 'web'.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        hls_status = transcoder.get_hls_status(
+            transcoder.build_output_key(safe_stream_id, device_profile)
+        )
 
         return Response({
             "success": True,

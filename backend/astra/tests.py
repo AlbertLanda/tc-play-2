@@ -10,15 +10,17 @@ No se lanza FFmpeg real: los procesos se simulan con mocks y las salidas
 HLS se crean en una carpeta temporal.
 """
 
+import shutil
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 from xtream.services import transcoder
 
 
+PROXY_URL = "/api/astra/proxy-url/"
 STOP_PROXY_URL = "/api/astra/stop-proxy/"
 PROXY_STATUS_URL = "/api/astra/proxy-status/"
 
@@ -59,6 +61,7 @@ class AstraStopProxyTests(SimpleTestCase):
         self.assertTrue(data["stopped"])
         self.assertTrue(data["output_removed"])
         self.assertEqual(data["channel_id"], "astra-5")
+        # Astra tiene una única salida web y conserva su clave histórica.
         mock_stop.assert_called_once_with("astra-5")
         mock_remove.assert_called_once_with("astra-5")
 
@@ -173,3 +176,171 @@ class TranscoderDamagedOutputTests(SimpleTestCase):
         salida = next(o for o in status["outputs"] if o["stream_id"] == "astra-5")
         self.assertEqual(salida["segments"], 6)
         self.assertFalse(salida["damaged"])
+
+
+class AstraProxyUrlTests(SimpleTestCase):
+    """
+    POST /api/astra/proxy-url/: el flujo principal de Astra.
+
+    Astra conserva su ruta histórica y no expone device_profile en su
+    contrato público.
+    """
+
+    def _post(self, payload):
+        return self.client.post(
+            PROXY_URL, payload, content_type="application/json"
+        )
+
+    def _canal(self):
+        return [{"id": "astra-5", "name": "Canal 5", "url": "http://astra/5.ts"}]
+
+    @patch("astra.views.transcoder.build_hls_url")
+    @patch("astra.views.transcoder.wait_for_hls_index", return_value=True)
+    @patch("astra.views.transcoder.start_hls_transcode")
+    @patch("astra.views.get_astra_channels")
+    def test_url_conserva_la_clave_historica(
+        self, mock_channels, mock_start, mock_wait, mock_url
+    ):
+        """La espera y la URL siguen apuntando a /hls/astra-5/."""
+        mock_channels.return_value = self._canal()
+        mock_start.return_value = ("astra-5", False, "transcode")
+        mock_url.return_value = "http://testserver/media/hls/astra-5/index.m3u8"
+
+        response = self._post({"channel_id": "astra-5"})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["channel_id"], "astra-5")
+        self.assertIn("hls/astra-5/index.m3u8", data["hls_url"])
+        # La espera y la URL se hacen sobre la CLAVE, no sobre el channel_id.
+        mock_wait.assert_called_once_with("astra-5")
+        self.assertEqual(mock_url.call_args.args[1], "astra-5")
+
+    @patch("astra.views.transcoder.build_hls_url")
+    @patch("astra.views.transcoder.wait_for_hls_index", return_value=True)
+    @patch("astra.views.transcoder.start_hls_transcode")
+    @patch("astra.views.get_astra_channels")
+    def test_astra_pide_su_clave_sin_imponer_perfil(
+        self, mock_channels, mock_start, _mock_wait, mock_url
+    ):
+        """
+        Astra fija su clave de salida pero NO manda device_profile: así el
+        transcoder aplica el default y sus parámetros de FFmpeg no cambian.
+        """
+        mock_channels.return_value = self._canal()
+        mock_start.return_value = ("astra-5", False, "transcode")
+        mock_url.return_value = "http://testserver/media/hls/astra-5/index.m3u8"
+
+        self._post({"channel_id": "astra-5"})
+
+        self.assertEqual(mock_start.call_args.kwargs["output_key"], "astra-5")
+        self.assertNotIn("device_profile", mock_start.call_args.kwargs)
+
+    @patch("astra.views.transcoder.stop_hls_transcode")
+    @patch("astra.views.transcoder.wait_for_hls_index", return_value=False)
+    @patch("astra.views.transcoder.start_hls_transcode")
+    @patch("astra.views.get_astra_channels")
+    def test_si_no_hay_salida_limpia_con_la_misma_clave(
+        self, mock_channels, mock_start, _mock_wait, mock_stop
+    ):
+        """
+        Si FFmpeg no generó el index, la limpieza debe apuntar a la MISMA
+        clave que se lanzó; con el channel_id crudo quedaría un proceso vivo
+        sin nadie que lo apague.
+        """
+        mock_channels.return_value = self._canal()
+        mock_start.return_value = ("astra-5", False, "transcode")
+
+        response = self._post({"channel_id": "astra-5"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["error_code"], "hls_output_error")
+        mock_stop.assert_called_once_with("astra-5")
+
+    @patch("astra.views.get_astra_channels")
+    def test_canal_inexistente_devuelve_404(self, mock_channels):
+        mock_channels.return_value = self._canal()
+
+        response = self._post({"channel_id": "noexiste"})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json()["error_code"], "astra_channel_not_found"
+        )
+
+
+class AstraProxyStatusClaveTests(SimpleTestCase):
+    """El monitoreo de Astra conserva la clave histórica de la salida."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_status_reporta_la_clave_astra_sin_sufijo(self):
+        folder = self.tmp / "astra-5"
+        folder.mkdir(parents=True)
+        (folder / "index.m3u8").write_text("#EXTM3U\n")
+        (folder / "segment_000.ts").write_text("x")
+
+        with override_settings(HLS_ROOT=self.tmp):
+            data = transcoder.get_transcoder_status()
+
+        salida = data["outputs"][0]
+        self.assertEqual(salida["output_key"], "astra-5")
+        self.assertEqual(salida["stream_id"], "astra-5")
+        self.assertIsNone(salida["device_profile"])
+
+
+class AstraOutputKeyTests(SimpleTestCase):
+    """
+    Integración de la clave histórica de Astra con el transcoder.
+
+    Sirve de guard de regresión: el aislamiento de perfiles cambió la clave de
+    salida, pero NO debe cambiar cómo se codifica Astra.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        transcoder._process_started_at.clear()
+        transcoder._process_profile.clear()
+        self.addCleanup(transcoder._processes.clear)
+        self.addCleanup(transcoder._process_started_at.clear)
+        self.addCleanup(transcoder._process_profile.clear)
+
+    @patch("xtream.services.transcoder.ensure_cleanup_thread")
+    @patch("xtream.services.transcoder.subprocess.Popen")
+    @patch("xtream.services.transcoder.is_ffmpeg_available", return_value=True)
+    def test_astra_conserva_su_clave_y_su_codificacion(
+        self, _mock_ffmpeg, mock_popen, _mock_cleanup
+    ):
+        process = MagicMock()
+        process.poll.return_value = None
+        mock_popen.return_value = process
+
+        # Mismos argumentos que usa astra_proxy_url: clave explícita y SIN
+        # device_profile, para que aplique el default.
+        with override_settings(HLS_ROOT=self.tmp, MAX_CONCURRENT_TRANSCODES=5):
+            output_key, reused, mode = transcoder.start_hls_transcode(
+                stream_url="http://astra/5.ts",
+                stream_id="astra-5",
+                forced_mode="transcode",
+                output_key="astra-5",
+            )
+
+        # La salida sigue en /hls/astra-5/, sin sufijo de perfil.
+        self.assertEqual(output_key, "astra-5")
+        self.assertFalse(reused)
+        self.assertEqual(mode, "transcode")
+        self.assertTrue((self.tmp / "astra-5").is_dir())
+
+        # Y se codifica igual que antes del aislamiento por perfiles: acotado
+        # a 720p30 con bitrate con techo, no a resolución/FPS del origen.
+        command = mock_popen.call_args.args[0]
+        video_filters = command[command.index("-vf") + 1]
+        self.assertIn("min(720,ih)", video_filters)
+        self.assertIn("fps=30", video_filters)
+        self.assertIn("2500k", command)
+        self.assertNotIn("-crf", command)

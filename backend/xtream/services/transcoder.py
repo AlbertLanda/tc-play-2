@@ -9,7 +9,8 @@ empaquetado.
 
 Objetivos de diseño:
     - El backend NO debe caerse si FFmpeg no está instalado.
-    - No duplicar procesos si ya hay un HLS activo para el mismo stream_id.
+    - No duplicar procesos si ya hay un HLS activo para el mismo canal Y el
+      mismo perfil de dispositivo (ver "Clave de salida HLS" más abajo).
     - No exponer la URL original (con credenciales) al cliente.
 
 Ver riesgos y límites en docs/transcoder_hls.md. Esto es una prueba
@@ -118,6 +119,51 @@ def normalize_device_profile(value) -> str:
     return profile
 
 
+# --- Clave de salida HLS (stream_id + device_profile) ----------------------
+# La salida HLS NO se identifica solo por stream_id: si lo hiciera, una TV que
+# pide el canal 123 reutilizaría el HLS 720p30 que generó un celular y nunca
+# recibiría su perfil. La unidad de identidad real es la pareja
+# (stream_id, device_profile), y se representa como un texto plano:
+#
+#     123 + mobile -> "123-mobile"  ->  MEDIA/hls/123-mobile/index.m3u8
+#     123 + tv     -> "123-tv"      ->  MEDIA/hls/123-tv/index.m3u8
+#
+# Se eligió la convención PLANA (un solo nivel de carpeta) y no la anidada
+# (hls/tv/123/) porque cleanup_inactive() y get_transcoder_status() recorren
+# los directorios de primer nivel de HLS_ROOT y tratan folder.name como la
+# clave: con un nivel extra dejarían de limpiar en silencio.
+#
+# Todas las funciones de disco/proceso reciben ya la CLAVE (output_key), no el
+# stream_id suelto. El llamador la construye una sola vez con
+# build_output_key() y la pasa hacia abajo.
+
+def build_output_key(stream_id, device_profile=DEFAULT_DEVICE_PROFILE) -> str:
+    """
+    Construye la clave de salida que aísla el HLS por perfil de dispositivo.
+
+    Valida ambas partes: stream_id lanza ValueError si trae caracteres no
+    permitidos (path traversal) y device_profile lanza ValueError si no es un
+    perfil conocido. None/"" en el perfil cae a mobile (default).
+    """
+    return f"{sanitize_stream_id(stream_id)}-{normalize_device_profile(device_profile)}"
+
+
+def split_output_key(output_key: str):
+    """
+    Descompone una clave de salida en (stream_id, device_profile).
+
+    Devuelve device_profile None cuando la clave no trae sufijo de perfil
+    conocido (carpetas antiguas anteriores a esta separación, o claves crudas).
+    Como el stream_id admite guiones, se corta por el ÚLTIMO "-" y solo se
+    acepta el sufijo si es un perfil válido: así "canal-01-tv" se parte bien
+    en ("canal-01", "tv") y "canal-01" queda como ("canal-01", None).
+    """
+    stream_id, _, suffix = str(output_key).rpartition("-")
+    if stream_id and suffix in DEVICE_PROFILES:
+        return stream_id, suffix
+    return str(output_key), None
+
+
 # --- Excepciones del transcoder -------------------------------------------
 # Cada una mapea a un error_code / HTTP definido en el plan del día.
 
@@ -153,17 +199,19 @@ class TranscoderBusyError(TranscoderError):
 
 
 # --- Registro de procesos en memoria --------------------------------------
-# Mapa stream_id -> subprocess.Popen del FFmpeg lanzado. Es un registro
-# simple por proceso de Django; en producción se necesitaría algo más
-# robusto (cola de trabajos, límite de concurrencia, etc.).
+# Mapa output_key ("123-tv") -> subprocess.Popen del FFmpeg lanzado. La llave
+# incluye el perfil, así que el mismo canal puede tener un proceso por
+# dispositivo sin pisarse. Es un registro simple por proceso de Django; en
+# producción se necesitaría algo más robusto (cola de trabajos, etc.).
 _processes = {}
-# Mapa stream_id -> timestamp (time.time()) en que se lanzó ese FFmpeg. Sirve
+# Mapa output_key -> timestamp (time.time()) en que se lanzó ese FFmpeg. Sirve
 # para calcular el uptime del proceso. Vive en memoria igual que _processes,
 # así que se pierde al reiniciar Django (uptime = None tras un reinicio).
 _process_started_at = {}
-# Mapa stream_id -> device_profile con el que se lanzó ese FFmpeg. Sirve para
-# que el diagnóstico (get_hls_status) reporte el perfil usado. Vive en memoria
-# igual que _processes, así que se pierde al reiniciar Django (profile = None).
+# Mapa output_key -> device_profile con el que se lanzó ese FFmpeg. Para
+# Xtream el perfil se deriva de la clave; para salidas estables sin sufijo,
+# como Astra, este registro permite informar el preset mientras el proceso de
+# Django siga vivo.
 _process_profile = {}
 _lock = threading.Lock()
 
@@ -207,14 +255,14 @@ def is_ffmpeg_available() -> bool:
         return False
 
 
-def _hls_dir(stream_id: str):
-    return settings.HLS_ROOT / stream_id
+def _hls_dir(output_key: str):
+    return settings.HLS_ROOT / output_key
 
 
-def _index_path(stream_id: str):
-    return _hls_dir(stream_id) / "index.m3u8"
+def _index_path(output_key: str):
+    return _hls_dir(output_key) / "index.m3u8"
 
-def wait_for_hls_index(stream_id: str, timeout_seconds: int = 8) -> bool:
+def wait_for_hls_index(output_key: str, timeout_seconds: int = 8) -> bool:
     """
     Espera unos segundos a que FFmpeg genere el index.m3u8.
     Devuelve True si el archivo existe; False si no aparece dentro del tiempo.
@@ -222,7 +270,7 @@ def wait_for_hls_index(stream_id: str, timeout_seconds: int = 8) -> bool:
     Espera "ligera": solo mira el index. Para Android úsese
     wait_for_hls_ready(), que además exige segmentos .ts suficientes.
     """
-    index = _index_path(stream_id)
+    index = _index_path(output_key)
     deadline = time.time() + timeout_seconds
 
     while time.time() < deadline:
@@ -233,29 +281,29 @@ def wait_for_hls_index(stream_id: str, timeout_seconds: int = 8) -> bool:
     return False
 
 
-def count_ts_segments(stream_id: str) -> int:
-    """Número de segmentos .ts en disco para un stream_id (0 si no hay carpeta)."""
-    folder = _hls_dir(stream_id)
+def count_ts_segments(output_key: str) -> int:
+    """Número de segmentos .ts en disco para una salida (0 si no hay carpeta)."""
+    folder = _hls_dir(output_key)
     if not folder.exists():
         return 0
     return len(list(folder.glob("*.ts")))
 
 
-def _hls_is_ready(stream_id: str, min_segments: int) -> bool:
+def _hls_is_ready(output_key: str, min_segments: int) -> bool:
     """
     True si la salida HLS ya es reproducible: index.m3u8 existe con tamaño
     mayor a 0, no está dañada y hay al menos ``min_segments`` segmentos .ts.
     """
-    index = _index_path(stream_id)
+    index = _index_path(output_key)
     if not index.exists() or index.stat().st_size == 0:
         return False
-    if is_hls_output_damaged(stream_id):
+    if is_hls_output_damaged(output_key):
         return False
-    return count_ts_segments(stream_id) >= min_segments
+    return count_ts_segments(output_key) >= min_segments
 
 
 def wait_for_hls_ready(
-    stream_id: str, timeout_seconds: int = 15, min_segments: int = 2
+    output_key: str, timeout_seconds: int = 15, min_segments: int = 2
 ) -> bool:
     """
     Espera a que la salida HLS esté REALMENTE lista para reproducirse en
@@ -273,36 +321,40 @@ def wait_for_hls_ready(
     deadline = time.time() + timeout_seconds
 
     while time.time() < deadline:
-        if _hls_is_ready(stream_id, min_segments):
+        if _hls_is_ready(output_key, min_segments):
             return True
 
         # Si el proceso FFmpeg ya terminó y la salida aún no está lista, no
         # tiene sentido seguir esperando: el canal no va a producir más.
         with _lock:
-            process = _processes.get(stream_id)
+            process = _processes.get(output_key)
         if process is not None and process.poll() is not None:
-            return _hls_is_ready(stream_id, min_segments)
+            return _hls_is_ready(output_key, min_segments)
 
         time.sleep(0.5)
 
     return False
 
-def build_hls_url(request, stream_id: str) -> str:
+def build_hls_url(request, output_key: str) -> str:
     """
     Construye la URL pública del index.m3u8 a partir de MEDIA_URL y del
     host de la petición, sin credenciales.
+
+    En consumidores con varios perfiles, la clave lleva el perfil incrustado:
+    .../hls/123-mobile/... y .../hls/123-tv/.... Consumidores con una única
+    salida estable pueden usar una clave sin sufijo, como .../hls/astra-5/.
     """
-    relative = f"{settings.MEDIA_URL}hls/{stream_id}/index.m3u8"
+    relative = f"{settings.MEDIA_URL}hls/{output_key}/index.m3u8"
     return request.build_absolute_uri("/" + relative.lstrip("/"))
 
 
-def is_hls_output_damaged(stream_id: str) -> bool:
+def is_hls_output_damaged(output_key: str) -> bool:
     """
     True si la salida HLS existe pero está dañada: index.m3u8 vacío o
     carpeta sin ningún segmento .ts. Una salida dañada no debe reutilizarse;
     hay que limpiarla y regenerarla.
     """
-    index = _index_path(stream_id)
+    index = _index_path(output_key)
     if not index.exists():
         return False
 
@@ -310,26 +362,26 @@ def is_hls_output_damaged(stream_id: str) -> bool:
         return True
 
     # index con contenido pero sin segmentos en disco -> playlist rota.
-    segments = list(_hls_dir(stream_id).glob("*.ts"))
+    segments = list(_hls_dir(output_key).glob("*.ts"))
     return len(segments) == 0
 
 
-def get_index_age_seconds(stream_id: str):
+def get_index_age_seconds(output_key: str):
     """
     Segundos transcurridos desde la última escritura del index.m3u8, o None
     si no existe. FFmpeg reescribe la playlist cada vez que cierra un
     segmento (~HLS_TIME), así que este número es la señal más fiable de si
     la salida sigue recibiendo contenido nuevo.
     """
-    index = _index_path(stream_id)
+    index = _index_path(output_key)
     if not index.exists():
         return None
     return round(time.time() - index.stat().st_mtime, 1)
 
 
-def get_process_uptime_seconds(stream_id: str):
+def get_process_uptime_seconds(output_key: str):
     """
-    Segundos que lleva CORRIENDO el proceso FFmpeg de este stream_id, o None
+    Segundos que lleva CORRIENDO el proceso FFmpeg de esta salida, o None
     si no hay un proceso vivo registrado.
 
     Se basa en el registro en memoria (_process_started_at), así que —igual
@@ -338,8 +390,8 @@ def get_process_uptime_seconds(stream_id: str):
     el uptime deja de tener sentido y se devuelve None.
     """
     with _lock:
-        process = _processes.get(stream_id)
-        started = _process_started_at.get(stream_id)
+        process = _processes.get(output_key)
+        started = _process_started_at.get(output_key)
 
     if process is None or started is None:
         return None
@@ -348,7 +400,7 @@ def get_process_uptime_seconds(stream_id: str):
     return round(time.time() - started, 1)
 
 
-def is_output_live(stream_id: str) -> bool:
+def is_output_live(output_key: str) -> bool:
     """
     True si la salida HLS sigue PRODUCIENDO contenido nuevo.
 
@@ -362,10 +414,10 @@ def is_output_live(stream_id: str) -> bool:
     escribiendo) da ready=True y live=False: se puede reproducir lo ya
     grabado, pero se congela al agotarlo.
     """
-    if is_hls_output_damaged(stream_id):
+    if is_hls_output_damaged(output_key):
         return False
 
-    age = get_index_age_seconds(stream_id)
+    age = get_index_age_seconds(output_key)
     if age is None:
         return False
 
@@ -373,18 +425,20 @@ def is_output_live(stream_id: str) -> bool:
     return age <= ttl
 
 
-def _log_recovery(stream_id: str, reason: str, reused: bool = False) -> None:
+def _log_recovery(output_key: str, reason: str, reused: bool = False) -> None:
     """
     Log técnico SEGURO de una decisión de recuperación de HLS.
 
-    Registra solo stream_id + métricas de la salida en disco (reason, ready,
-    live, index_age_seconds, segments, reused).
+    Registra solo stream_id + device_profile + métricas de la salida en disco
+    (reason, ready, live, index_age_seconds, segments, reused). Nunca la URL
+    original, el usuario ni la contraseña.
     """
-    status = get_hls_status(stream_id)
+    status = get_hls_status(output_key)
     logger.info(
-        "hls_recovery stream_id=%s reason=%s ready=%s live=%s "
+        "hls_recovery stream_id=%s device_profile=%s reason=%s ready=%s live=%s "
         "index_age_seconds=%s segments=%s hls_reused=%s",
-        stream_id,
+        status["stream_id"],
+        status["device_profile"],
         reason,
         status["ready"],
         status["live"],
@@ -394,10 +448,15 @@ def _log_recovery(stream_id: str, reason: str, reused: bool = False) -> None:
     )
 
 
-def is_stream_active(stream_id: str) -> bool:
+def is_stream_active(output_key: str) -> bool:
     """
-    True si ya existe un HLS reutilizable para este stream_id; False si hay
-    que (re)generarlo. Recuperación automática de salidas muertas:
+    True si ya existe un HLS reutilizable para ESTA salida (stream_id +
+    device_profile); False si hay que (re)generarlo.
+
+    Al recibir la clave con el perfil incrustado, un HLS "mobile" activo NO
+    hace que la consulta "tv" del mismo canal dé activo: son dos salidas
+    distintas y cada una se evalúa contra su propia carpeta y su propio
+    proceso. Recuperación automática de salidas muertas:
 
         - Proceso FFmpeg registrado y vivo            -> activo (True).
         - HLS con index fresco/live=True              -> activo (True).
@@ -409,41 +468,42 @@ def is_stream_active(stream_id: str) -> bool:
     el caller relance FFmpeg con contenido fresco.
     """
     with _lock:
-        process = _processes.get(stream_id)
+        process = _processes.get(output_key)
 
     # Proceso FFmpeg registrado y vivo -> activo, se reutiliza.
     if process is not None and process.poll() is None:
         return True
 
-    index = _index_path(stream_id)
+    index = _index_path(output_key)
     if not index.exists():
         return False
 
     # Salida dañada (index vacío o sin segmentos): no reutilizarla.
-    if is_hls_output_damaged(stream_id):
-        _log_recovery(stream_id, "damaged_hls_output")
-        remove_hls_output(stream_id)
+    if is_hls_output_damaged(output_key):
+        _log_recovery(output_key, "damaged_hls_output")
+        remove_hls_output(output_key)
         return False
 
     # HLS con index fresco (live=True) -> sigue produciendo, se reutiliza.
-    if is_output_live(stream_id):
+    if is_output_live(output_key):
         return True
 
     # HLS listo pero muerto (ready=True + live=False): se limpia el proceso
     # zombie y la salida para forzar la regeneración en el siguiente request.
-    _log_recovery(stream_id, "dead_hls_output")
-    stop_hls_transcode(stream_id)
-    remove_hls_output(stream_id)
+    _log_recovery(output_key, "dead_hls_output")
+    stop_hls_transcode(output_key)
+    remove_hls_output(output_key)
     return False
 
 
-def remove_hls_output(stream_id: str) -> bool:
+def remove_hls_output(output_key: str) -> bool:
     """
-    Borra la carpeta HLS de un stream_id (index.m3u8 + segmentos).
-    Devuelve True si existía algo que borrar. No toca el proceso: para
-    detenerlo usar stop_hls_transcode().
+    Borra la carpeta HLS de UNA salida (stream_id + perfil): index.m3u8 y sus
+    segmentos. Devuelve True si existía algo que borrar. Borrar la salida
+    "123-tv" no afecta a "123-mobile". No toca el proceso: para detenerlo
+    usar stop_hls_transcode().
     """
-    folder = _hls_dir(stream_id)
+    folder = _hls_dir(output_key)
     if not folder.exists():
         return False
     shutil.rmtree(folder, ignore_errors=True)
@@ -458,6 +518,7 @@ def get_transcoder_status() -> dict:
     """
     with _lock:
         snapshot = dict(_processes)
+        profile_snapshot = dict(_process_profile)
 
     alive = {sid for sid, proc in snapshot.items() if proc.poll() is None}
 
@@ -468,7 +529,12 @@ def get_transcoder_status() -> dict:
             if not folder.is_dir():
                 continue
 
-            stream_id = folder.name
+            # El nombre de la carpeta ES la clave de salida ("123-tv"); de ahí
+            # se derivan el stream_id y el perfil que se reportan por separado.
+            output_key = folder.name
+            stream_id, device_profile = split_output_key(output_key)
+            if device_profile is None:
+                device_profile = profile_snapshot.get(output_key)
             index = folder / "index.m3u8"
             if index.exists():
                 stat = index.stat()
@@ -479,13 +545,15 @@ def get_transcoder_status() -> dict:
                 index_size = 0
 
             outputs.append({
+                "output_key": output_key,
                 "stream_id": stream_id,
-                "process_alive": stream_id in alive,
+                "device_profile": device_profile,
+                "process_alive": output_key in alive,
                 "index_exists": index.exists(),
                 "index_age_seconds": index_age,
                 "index_size_bytes": index_size,
                 "segments": len(list(folder.glob("*.ts"))),
-                "damaged": is_hls_output_damaged(stream_id),
+                "damaged": is_hls_output_damaged(output_key),
             })
 
     return {
@@ -495,11 +563,14 @@ def get_transcoder_status() -> dict:
     }
 
 
-def get_hls_status(stream_id: str) -> dict:
+def get_hls_status(output_key: str) -> dict:
     """
-    Estado de la salida HLS de UN stream_id, para el endpoint de diagnóstico
-    hls-status. Informa si existe el index, su tamaño, cuántos segmentos hay,
-    si la salida está dañada y si sigue generándose contenido nuevo.
+    Estado de UNA salida HLS (stream_id + device_profile), para el endpoint de
+    diagnóstico hls-status. Informa si existe el index, su tamaño, cuántos
+    segmentos hay, si la salida está dañada y si sigue generándose contenido
+    nuevo. El perfil se reporta siempre: se deriva de la propia clave, así que
+    sigue siendo correcto aunque Django se haya reiniciado y el registro en
+    memoria se haya perdido.
 
     Distingue dos cosas que NO son lo mismo (Día 11):
         - ready: hay contenido reproducible en disco.
@@ -514,16 +585,21 @@ def get_hls_status(stream_id: str) -> dict:
 
     No expone usuario, contraseña ni la URL original del stream.
     """
-    folder = _hls_dir(stream_id)
-    index = _index_path(stream_id)
+    folder = _hls_dir(output_key)
+    index = _index_path(output_key)
     index_exists = index.exists()
     index_size = index.stat().st_size if index_exists else 0
     segments = len(list(folder.glob("*.ts"))) if folder.exists() else 0
-    damaged = is_hls_output_damaged(stream_id)
+    damaged = is_hls_output_damaged(output_key)
+
+    stream_id, device_profile = split_output_key(output_key)
 
     with _lock:
-        process = _processes.get(stream_id)
-        device_profile = _process_profile.get(stream_id)
+        process = _processes.get(output_key)
+        # La clave manda; el registro en memoria cubre claves estables sin
+        # sufijo de perfil, como las salidas de Astra.
+        if device_profile is None:
+            device_profile = _process_profile.get(output_key)
     process_alive = process is not None and process.poll() is None
 
     min_segments_required = getattr(settings, "HLS_MIN_SEGMENTS", 2)
@@ -533,7 +609,7 @@ def get_hls_status(stream_id: str) -> dict:
         and not damaged
         and segments >= min_segments_required
     )
-    live = is_output_live(stream_id)
+    live = is_output_live(output_key)
 
     # la salida necesita recuperación cuando es reproducible pero ya
     # no se renueva (ready=True + live=False). El backend debe limpiarla y
@@ -543,17 +619,18 @@ def get_hls_status(stream_id: str) -> dict:
     # Uptime del proceso FFmpeg: cuánto lleva corriendo este canal. Se expone
     # también en minutos para leerlo cómodo. None si no hay proceso vivo
     # registrado (o tras reiniciar Django, igual que process_alive).
-    uptime_seconds = get_process_uptime_seconds(stream_id)
+    uptime_seconds = get_process_uptime_seconds(output_key)
     uptime_minutes = (
         round(uptime_seconds / 60, 2) if uptime_seconds is not None else None
     )
 
     return {
+        "output_key": output_key,
         "stream_id": stream_id,
         "device_profile": device_profile,
         "index_exists": index_exists,
         "index_size_bytes": index_size,
-        "index_age_seconds": get_index_age_seconds(stream_id),
+        "index_age_seconds": get_index_age_seconds(output_key),
         "segments": segments,
         "min_segments_required": min_segments_required,
         "ready": ready,
@@ -793,24 +870,41 @@ def _build_ffmpeg_command(
 def start_hls_transcode(
     stream_url: str, stream_id: str, forced_mode: str = None,
     device_profile: str = DEFAULT_DEVICE_PROFILE,
+    output_key: str = None,
 ):
     """
     Lanza (o reutiliza) un proceso FFmpeg que genera la salida HLS para el
     stream_id dado, según el device_profile (mobile / tv / web).
 
-    Devuelve una tupla (stream_id, reused: bool, mode: str|None). No bloquea
-    el request: FFmpeg corre en segundo plano vía subprocess.Popen. En caso de
-    reutilización, mode es None (no se vuelve a decidir).
+    Devuelve una tupla (output_key, reused: bool, mode: str|None). Por
+    defecto, output_key es "<stream_id>-<device_profile>". Un consumidor que
+    tiene una única salida estable (Astra) puede proporcionar una clave
+    explícita para conservar su ruta histórica sin acoplarla al perfil de
+    codificación. No bloquea el request: FFmpeg corre en segundo plano vía
+    subprocess.Popen. En caso de reutilización, mode es None.
+
+    AISLAMIENTO POR PERFIL: cuando no se proporciona output_key, la
+    reutilización se evalúa contra la clave completa. Por eso una TV que pide
+    el canal 123 NO hereda el HLS que dejó un celular. output_key desacopla la
+    identidad de almacenamiento del preset de FFmpeg, pero no debe usarse en
+    endpoints que permiten seleccionar varios perfiles.
 
     Lanza FFmpegNotAvailableError / HlsOutputError / TranscoderStartError
-    según el punto de falla.
+    según el punto de falla, y ValueError si stream_id o device_profile no
+    son válidos.
     """
     if not is_ffmpeg_available():
         raise FFmpegNotAvailableError("FFmpeg no está disponible.")
 
-    # Si ya hay algo activo para este stream, se reutiliza la salida.
-    if is_stream_active(stream_id):
-        return stream_id, True, None
+    device_profile = normalize_device_profile(device_profile)
+    if output_key is None:
+        output_key = build_output_key(stream_id, device_profile)
+    else:
+        output_key = sanitize_stream_id(output_key)
+
+    # Si ya hay algo activo para ESTA salida (stream + perfil), se reutiliza.
+    if is_stream_active(output_key):
+        return output_key, True, None
 
     # Límite de procesos concurrentes: si ya se alcanzó, no se lanza otro
     # para no saturar el servidor.
@@ -820,8 +914,8 @@ def start_hls_transcode(
             "Se alcanzó el límite de procesos de transcoder concurrentes."
         )
 
-    # Preparar la carpeta de salida.
-    output_dir = _hls_dir(stream_id)
+    # Preparar la carpeta de salida (una por perfil).
+    output_dir = _hls_dir(output_key)
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
     except OSError as error:
@@ -832,7 +926,7 @@ def start_hls_transcode(
     # cuando realmente hace falta.
     mode = forced_mode or decide_mode(stream_url, device_profile)
     command = _build_ffmpeg_command(
-        stream_url, _index_path(stream_id), mode, device_profile
+        stream_url, _index_path(output_key), mode, device_profile
     )
 
     try:
@@ -845,14 +939,14 @@ def start_hls_transcode(
         raise TranscoderStartError("No se pudo iniciar FFmpeg.") from error
 
     with _lock:
-        _processes[stream_id] = process
-        _process_started_at[stream_id] = time.time()
-        _process_profile[stream_id] = device_profile
+        _processes[output_key] = process
+        _process_started_at[output_key] = time.time()
+        _process_profile[output_key] = device_profile
 
     # Asegura que el hilo de limpieza automática esté corriendo.
     ensure_cleanup_thread()
 
-    return stream_id, False, mode
+    return output_key, False, mode
 
 
 def count_active_processes() -> int:
@@ -861,16 +955,16 @@ def count_active_processes() -> int:
         return sum(1 for p in _processes.values() if p.poll() is None)
 
 
-def stop_hls_transcode(stream_id: str) -> bool:
+def stop_hls_transcode(output_key: str) -> bool:
     """
-    Detiene el proceso FFmpeg asociado a un stream_id, si existe.
-    Devuelve True si había un proceso que detener. (Base para limpieza
-    manual; ver tareas opcionales del plan.)
+    Detiene el proceso FFmpeg asociado a UNA clave de salida, si existe.
+    Devuelve True si había un proceso que detener. Detener "123-tv" deja
+    intacto "123-mobile"; detener "astra-5" afecta solo esa salida web.
     """
     with _lock:
-        process = _processes.pop(stream_id, None)
-        _process_started_at.pop(stream_id, None)
-        _process_profile.pop(stream_id, None)
+        process = _processes.pop(output_key, None)
+        _process_started_at.pop(output_key, None)
+        _process_profile.pop(output_key, None)
 
     if process is None:
         return False
