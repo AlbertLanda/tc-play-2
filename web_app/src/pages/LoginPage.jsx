@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { loginRequest } from '../api/authApi';
 
+const BYPASS_LOGIN = import.meta.env.VITE_BYPASS_LOGIN === 'true';
+
 export function LoginPage({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -9,6 +11,20 @@ export function LoginPage({ onLoginSuccess }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (BYPASS_LOGIN) {
+      onLoginSuccess({
+        username: username.trim() || 'demo.staging',
+        password: password || 'demo',
+        user: {
+          username: username.trim() || 'demo.staging',
+          status: 'Active',
+          is_active: true,
+        },
+        bypass: true,
+      });
+      return;
+    }
 
     if (!username.trim() || !password.trim()) {
       setErrorMessage('Ingrese usuario y contraseña.');
