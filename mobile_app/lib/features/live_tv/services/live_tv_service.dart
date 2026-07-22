@@ -58,7 +58,10 @@ class LiveTvService {
     final channels = data['channels'] as List<dynamic>? ?? [];
 
     return channels
-        .map((item) => LiveChannel.fromJson(item as Map<String, dynamic>))
+        .map((item) {
+          print(item);
+          return LiveChannel.fromJson(item as Map<String, dynamic>);  
+        })
         .toList();
   }
 

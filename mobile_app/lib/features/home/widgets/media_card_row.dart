@@ -56,7 +56,7 @@ class MediaCardRow extends StatelessWidget {
     }
 
     return SizedBox(
-      height: cardHeight + 34,
+      height: cardHeight + 42,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),

@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-
 import '../../../core/constants/app_colors.dart';
 import '../services/live_tv_service.dart';
+import '../models/recent_channel.dart';
+import '../services/recent_channel_service.dart';
+import '../models/favorite_channel.dart';
+import '../services/favorite_channel_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String username;
@@ -30,6 +33,13 @@ class PlayerScreen extends StatefulWidget {
 
 class _PlayerScreenState extends State<PlayerScreen> {
   final LiveTvService _service = LiveTvService();
+
+  final FavoriteChannelService _favoriteService = FavoriteChannelService();
+
+  bool _isFavorite = false;
+
+  final RecentChannelService _recentChannelService =
+    RecentChannelService();
 
   VideoPlayerController? _videoPlayerController;
 
@@ -55,10 +65,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+
+    _checkFavorite(); 
+
     WakelockPlus.enable();
+
+    _saveRecentChannel();
+
     _loadInitialPlayer();
+
     _scheduleHideControls();
   }
+
+  
 
   // ---------------------------------------------------------------------
   // Orientación: portrait <-> landscape (pantalla completa horizontal)
@@ -350,6 +369,67 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {});
   }
 
+  Future<void> _checkFavorite() async {
+      final favorite =
+          await _favoriteService.isFavorite(widget.streamId);
+      
+      if (!mounted) return;
+      
+      setState(() {
+        _isFavorite = favorite;
+      });
+    }
+
+    Future<void> _toggleFavorite() async {
+      if (_isFavorite) {
+        await _favoriteService.removeChannel(widget.streamId);
+
+        if (!mounted) return;
+
+        setState(() {
+          _isFavorite = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Canal eliminado de favoritos'),
+          ),
+        );
+      } else {
+        await _favoriteService.saveChannel(
+          FavoriteChannel(
+            id: widget.streamId,
+            name: widget.channelName,
+            icon: widget.channelIcon,
+            streamType: 'live',
+          ),
+        );
+
+        if (!mounted) return;
+
+        setState(() {
+          _isFavorite = true;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Canal agregado a favoritos'),
+          ),
+        );
+      }
+    }
+
+  Future<void> _saveRecentChannel() async {
+    await _recentChannelService.saveChannel(
+      RecentChannel(
+        id: widget.streamId,
+        name: widget.channelName,
+        icon: widget.channelIcon,
+        streamType: 'live',
+      ),
+    );
+  }
+
   void _comingSoon() {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -522,9 +602,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   color: AppColors.textPrimary, size: 20),
             ),
             IconButton(
-              onPressed: _comingSoon,
-              icon: const Icon(Icons.thumb_up_alt_outlined,
-                  color: AppColors.textPrimary, size: 20),
+              onPressed: _toggleFavorite,
+              icon: Icon(
+                _isFavorite
+                  ? Icons.star_rounded
+                  : Icons.star_border_rounded,
+                color: Colors.amber,
+                size: 22,
+              ),
             ),
             IconButton(
               onPressed: _comingSoon,

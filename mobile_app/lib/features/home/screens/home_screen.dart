@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../live_tv/models/recent_channel.dart';
+import '../../live_tv/services/recent_channel_service.dart';
+import '../../live_tv/models/favorite_channel.dart';
+import '../../live_tv/services/favorite_channel_service.dart';
+import '../../live_tv/screens/search_screen.dart';
 import '../../live_tv/screens/player_screen.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
@@ -30,15 +35,25 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final LiveTvService _liveTvService = LiveTvService();
+  final RecentChannelService _recentChannelService =
+    RecentChannelService();
+
+  final FavoriteChannelService _favoriteService =
+    FavoriteChannelService();
 
 
   late Future<List<LiveChannel>> _recommendedChannelsFuture;
+  late Future<List<RecentChannel>> _recentChannelsFuture;
+  late Future<List<FavoriteChannel>> _favoriteChannelsFuture;
 
   @override
   void initState() {
     super.initState();
 
     _recommendedChannelsFuture = _loadRecommendedChannels();
+    _recentChannelsFuture = _recentChannelService.getRecentChannels();
+    _favoriteChannelsFuture = _favoriteService.getFavoriteChannels();
+
   }
 
   Future<List<LiveChannel>> _loadRecommendedChannels() async {
@@ -60,6 +75,19 @@ class _HomeScreenState extends State<HomeScreen> {
   );
 
   return channels.take(10).toList();
+}
+
+Future<void> _reloadRecentChannels() async {
+  setState(() {
+    _recentChannelsFuture = _recentChannelService.getRecentChannels();
+  });
+}
+
+void _reloadFavorites() {
+  setState(() {
+    _favoriteChannelsFuture =
+        _favoriteService.getFavoriteChannels();
+  });
 }
 
   void _goToLiveTv() {
@@ -86,6 +114,18 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  void _openSearch() {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => SearchScreen(
+        username: widget.username,
+        password: widget.password,
+      ),
+    ),
+  );
+}
 
   void _comingSoon() {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -133,7 +173,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: AppColors.textPrimary),
           ),
           IconButton(
-            onPressed: _comingSoon,
+            onPressed: _openSearch,
             icon:
                 const Icon(Icons.search_rounded, color: AppColors.textPrimary),
           ),
@@ -152,35 +192,54 @@ class _HomeScreenState extends State<HomeScreen> {
   // backend lo exponga)
   // ---------------------------------------------------------------------
   Widget _buildContinueWatching() {
-    final items = [
-      MediaCardItem(
-        title: 'Más Rápido, Más Furioso',
-        subtitle: '1:04:15',
-        icon: Icons.local_movies_rounded,
-        showPlayOverlay: true,
-        progress: 0.35,
-        onTap: _comingSoon,
-      ),
-      MediaCardItem(
-        title: 'Los Juegos del Hambre: Balada...',
-        subtitle: '2:30:44',
-        icon: Icons.local_movies_rounded,
-        showPlayOverlay: true,
-        progress: 0.6,
-        onTap: _comingSoon,
-      ),
-      MediaCardItem(
-        title: 'Constantine',
-        subtitle: '1:58:02',
-        icon: Icons.local_movies_rounded,
-        showPlayOverlay: true,
-        progress: 0.15,
-        onTap: _comingSoon,
-      ),
-    ];
+  return FutureBuilder<List<RecentChannel>>(
+    future: _recentChannelsFuture,
+    builder: (context, snapshot) {
+      if (!snapshot.hasData || snapshot.data!.isEmpty) {
+        return const SizedBox(
+          height: 70,
+          child: Center(
+            child: Text(
+              'Aún no has visto ningún canal.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        );
+      }
 
-    return MediaCardRow(items: items);
-  }
+      final items = snapshot.data!
+          .map(
+            (channel) => MediaCardItem(
+              title: channel.name,
+              imageUrl: channel.icon,
+              showPlayOverlay: true,
+              progress: 1,
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => PlayerScreen(
+                      username: widget.username,
+                      password: widget.password,
+                      streamId: channel.id,
+                      channelName: channel.name,
+                      channelIcon: channel.icon,
+                    ),
+                  ),
+                );
+
+                _reloadRecentChannels();
+              },
+            ),
+          )
+          .toList();
+
+      return MediaCardRow(items: items);
+    },
+  );
+}
 
   // ---------------------------------------------------------------------
   // Canales recomendados (reales, desde LiveTvService)
@@ -233,8 +292,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 subtitle: 'EN VIVO',
                 imageUrl: channel.icon,
                 color: AppColors.primary,
-                onTap: () {
-                  Navigator.push(
+                onTap: () async {
+                  await Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (_) => PlayerScreen(
@@ -246,6 +305,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   );
+                  
+                  _reloadRecentChannels();
                 },
               ),
             );
@@ -260,27 +321,78 @@ class _HomeScreenState extends State<HomeScreen> {
   // Cortesía de la casa (placeholder — reemplazar con el catálogo de
   // películas/series gratuitas cuando exista el endpoint)
   // ---------------------------------------------------------------------
-  Widget _buildFreeCourtesy() {
-    final items = [
-      MediaCardItem(
-        title: 'Estreno 1',
-        icon: Icons.movie_rounded,
-        onTap: _comingSoon,
-      ),
-      MediaCardItem(
-        title: 'Power Rangers',
-        icon: Icons.movie_rounded,
-        onTap: _comingSoon,
-      ),
-      MediaCardItem(
-        title: 'Polla Millonaria',
-        icon: Icons.emoji_events_rounded,
-        onTap: _comingSoon,
-      ),
-    ];
+  Widget _buildFavoriteChannels() {
+  return FutureBuilder<List<FavoriteChannel>>(
+    future: _favoriteChannelsFuture,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const SizedBox(
+          height: 120,
+          child: Center(
+            child: CircularProgressIndicator(
+              color: AppColors.primary,
+            ),
+          ),
+        );
+      }
 
-    return MediaCardRow(items: items, cardHeight: 92);
-  }
+      final favorites = snapshot.data ?? [];
+
+      if (favorites.isEmpty) {
+        return const SizedBox(
+          height: 80,
+          child: Center(
+            child: Text(
+              'Aún no tienes canales favoritos.',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        );
+      }
+
+      return SizedBox(
+        height: 120,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          itemCount: favorites.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 12),
+          itemBuilder: (context, index) {
+            final channel = favorites[index];
+
+            return SizedBox(
+              width: 95,
+              child: LogoTile(
+                title: channel.name,
+                subtitle: 'FAVORITO',
+                imageUrl: channel.icon,
+                color: Colors.amber,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PlayerScreen(
+                        username: widget.username,
+                        password: widget.password,
+                        streamId: channel.id,
+                        channelName: channel.name,
+                        channelIcon: channel.icon,
+                      ),
+                    ),
+                  );
+                  
+                  _reloadFavorites();
+                },
+              ),
+            );
+          },
+        ),
+      );
+    },
+  );
+}
 
   @override
   Widget build(BuildContext context) {
@@ -328,8 +440,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: 'Canales recomendados', onSeeAll: _goToLiveTv),
               _buildRecommendedChannels(),
 
-              const AppSectionHeader(title: '¡Cortesía de la casa!'),
-              _buildFreeCourtesy(),
+              const AppSectionHeader(title: 'Tus Canales Favoritos'),
+              _buildFavoriteChannels(),
 
               // ------------------------------------------------------
               // AD_SLOT_HOME_BOTTOM — segundo espacio publicitario,
