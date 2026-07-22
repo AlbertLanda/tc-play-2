@@ -350,15 +350,27 @@ def build_hls_url(request, output_key: str) -> str:
 
 def is_hls_output_damaged(output_key: str) -> bool:
     """
-    True si la salida HLS existe pero está dañada: index.m3u8 vacío o
-    carpeta sin ningún segmento .ts. Una salida dañada no debe reutilizarse;
-    hay que limpiarla y regenerarla.
+    True si la salida HLS existe pero no sirve para TV en vivo:
+    - index.m3u8 vacío,
+    - carpeta sin segmentos .ts,
+    - playlist cerrada con #EXT-X-ENDLIST.
+
+    En TV en vivo, #EXT-X-ENDLIST significa que FFmpeg terminó y la salida
+    ya no se renovará; no debe reutilizarse.
     """
     index = _index_path(output_key)
     if not index.exists():
         return False
 
     if index.stat().st_size == 0:
+        return True
+
+    try:
+        content = index.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return True
+
+    if "#EXT-X-ENDLIST" in content:
         return True
 
     # index con contenido pero sin segmentos en disco -> playlist rota.
@@ -802,7 +814,13 @@ def _build_ffmpeg_command(
     resolución y normalizan fps; web preserva resolución y fps del origen.
     """
     ffmpeg_bin = getattr(settings, "FFMPEG_BIN", "ffmpeg")
-    command = [ffmpeg_bin, "-y", "-i", stream_url]
+    command = [
+        ffmpeg_bin,
+        "-y",
+        "-fflags", "+genpts+discardcorrupt",
+        "-err_detect", "ignore_err",
+        "-i", stream_url,
+    ]
 
     if mode == "remux":
         command += ["-c", "copy"]
