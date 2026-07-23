@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../models/live_category.dart';
 import '../models/live_channel.dart';
 import '../services/live_tv_service.dart';
+import '../services/search_cache.dart';
 import 'player_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -33,102 +34,89 @@ class _SearchScreenState extends State<SearchScreen> {
   List<LiveCategory> _categories = [];
   List<LiveChannel> _channels = [];
 
-  void _search(String query) {
+  List<LiveCategory> _allCategories = [];
+  List<LiveChannel> _allChannels = [];
 
-  _searchTimer?.cancel();
+  @override
+  void initState() {
+    super.initState();
+    _loadSearchData();
+  }
 
-  _searchTimer = Timer(
-    const Duration(milliseconds: 600),
-    () async {
+  Future<void> _loadSearchData() async {
+    if (SearchCache.hasData) {
+      _allCategories = SearchCache.categories!;
+      _allChannels = SearchCache.channels!;
+      return;
+    }
 
-      if (query.trim().length < 3) {
-        setState(() {
-          _categories = [];
-          _channels = [];
-        });
-        return;
-      }
+    setState(() {
+      _loading = true;
+    });
 
-      setState(() {
-        _loading = true;
-      });
+    try {
+      final categories = await _service.getCategories(
+        username: widget.username,
+        password: widget.password,
+      );
 
-      try {
+      final List<LiveChannel> channels = [];
 
-        debugPrint('SEARCH USER: ${widget.username}');
-        debugPrint('PASSWORD LENGTH: ${widget.password.length}');
-
-        final categories = await _service.getCategories(
+      for (final category in categories) {
+        final result = await _service.getChannels(
           username: widget.username,
           password: widget.password,
+          categoryId: category.id,
         );
 
-
-        final matchedCategories = categories.where((category) {
-          return category.name
-              .toLowerCase()
-              .contains(query.toLowerCase());
-        }).toList();
-
-
-        final List<LiveChannel> matchedChannels = [];
-
-
-        for (final category in categories) {
-
-          final channels = await _service.getChannels(
-            username: widget.username,
-            password: widget.password,
-            categoryId: category.id,
-          );
-
-
-          matchedChannels.addAll(
-            channels.where(
-              (channel) => channel.name
-                  .toLowerCase()
-                  .contains(query.toLowerCase()),
-            ),
-          );
-        }
-
-
-        if (!mounted) return;
-
-
-        setState(() {
-
-          _categories = matchedCategories;
-
-          _channels = matchedChannels;
-
-          _loading = false;
-
-        });
-
-
-      } catch (e) {
-
-        if (!mounted) return;
-
-
-        setState(() {
-          _loading = false;
-        });
-
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Error buscando canales: $e',
-            ),
-          ),
-        );
+        channels.addAll(result);
       }
 
-    },
-  );
-}
+      SearchCache.categories = categories;
+      SearchCache.channels = channels;
+
+      _allCategories = categories;
+      _allChannels = channels;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  void _search(String query) {
+    _searchTimer?.cancel();
+
+    _searchTimer = Timer(
+      const Duration(milliseconds: 600),
+      () {
+        if (query.trim().length < 3) {
+          setState(() {
+            _categories = [];
+            _channels = [];
+          });
+          return;
+        }
+
+        final search = query.toLowerCase();
+
+        final matchedCategories = _allCategories.where((category) {
+          return category.name.toLowerCase().contains(search);
+        }).toList();
+
+        final matchedChannels = _allChannels.where((channel) {
+          return channel.name.toLowerCase().contains(search);
+        }).toList();
+
+        setState(() {
+          _categories = matchedCategories;
+          _channels = matchedChannels;
+        });
+      },
+    );
+  }
 
 
   void _openPlayer(LiveChannel channel) {
@@ -282,7 +270,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               width: 40,
                               height: 40,
                               errorBuilder:
-                                  (_, __, ___) =>
+                                  (_, _, _) =>
                                       const Icon(
                                 Icons.tv,
                                 color: Colors.white,

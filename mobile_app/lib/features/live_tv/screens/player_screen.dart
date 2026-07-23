@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../core/constants/app_colors.dart';
 import '../services/live_tv_service.dart';
+import '../controllers/live_tv_player_controller.dart';
 import '../models/recent_channel.dart';
 import '../services/recent_channel_service.dart';
 import '../models/favorite_channel.dart';
@@ -32,9 +33,14 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  final LiveTvService _service = LiveTvService();
+  final LiveTvService _service = 
+    LiveTvService();
 
-  final FavoriteChannelService _favoriteService = FavoriteChannelService();
+  final LiveTvPlayerController _playerController =
+    LiveTvPlayerController();
+
+  final FavoriteChannelService _favoriteService = 
+    FavoriteChannelService();
 
   bool _isFavorite = false;
 
@@ -154,7 +160,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       if (!mounted || _isDisposed) return;
 
-      final controller = await _createAndInitializeController(streamUrl);
+      final controller = await _playerController.createController(streamUrl);
 
       if (!mounted || _isDisposed) {
         await controller?.dispose();
@@ -167,6 +173,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       _videoPlayerController = controller;
+      controller.addListener(() {
+        if (_isDisposed) return;
+
+        if (mounted) {
+          setState(() {});
+      }
+
+      if (controller.value.hasError &&
+        identical(controller, _videoPlayerController)) {
+      debugPrint(
+        'VIDEO ERROR: ${controller.value.errorDescription}',
+      );
+      _startAutomaticReconnect();
+    }
+  });
       await controller.play();
 
       _reconnectAttempts = 0;
@@ -342,8 +363,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _refresh() async {
     if (_isDisposed) return;
+    
+    setState(() {
+      _playerError = false;
+      _isInitializingPlayer = true;
+    });
+
     _reconnectAttempts = 0;
-    _playerError = false;
+
     await _startAutomaticReconnect();
   }
 
@@ -476,8 +503,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     top: 0, left: 0, right: 0, child: _buildTopOverlay()),
                 if (!_locked)
                   Positioned.fill(child: Center(child: _buildCenterControls())),
-                Positioned(
-                    left: 0, right: 0, bottom: 0, child: _buildBottomOverlay()),
               ],
               if (_controlsVisible)
                 Positioned(
@@ -493,49 +518,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildPlayerContent() {
-    final controller = _videoPlayerController;
+  final controller = _videoPlayerController;
 
-    if (controller != null && controller.value.isInitialized && !_playerError) {
-      return Center(
-        child: AspectRatio(
-          aspectRatio: controller.value.aspectRatio,
-          child: VideoPlayer(controller),
-        ),
-      );
-    }
-
-    if (_isInitializingPlayer) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.primary),
-      );
-    }
-
-    if (_playerError) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: AppColors.error, size: 50),
-            const SizedBox(height: 16),
-            const Text(
-              'No se pudo reproducir el canal.',
-              style: TextStyle(color: AppColors.textPrimary),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _refresh,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reintentar'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return const Center(
-      child: CircularProgressIndicator(color: AppColors.primary),
+  if (controller != null &&
+      controller.value.isInitialized &&
+      !_playerError) {
+    return Center(
+      child: AspectRatio(
+        aspectRatio: controller.value.aspectRatio,
+        child: VideoPlayer(controller),
+      ),
     );
   }
+
+  if (_isInitializingPlayer) {
+    return const Center(
+      child: CircularProgressIndicator(
+        color: AppColors.primary,
+      ),
+    );
+  }
+
+  if (_playerError) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.error_outline,
+            color: AppColors.error,
+            size: 50,
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No se pudo reproducir el canal.',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Reintentar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  return const Center(
+    child: CircularProgressIndicator(
+      color: AppColors.primary,
+    ),
+  );
+}
 
   // ---------------------------------------------------------------------
   // Overlay superior: volver, ícono + nombre del canal, cast, me gusta,
@@ -617,6 +654,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   color: AppColors.textPrimary, size: 20),
             ),
             IconButton(
+            onPressed: _toggleOrientation,
+            icon: Icon(
+              _isLandscape
+                  ? Icons.fullscreen_exit_rounded
+                  : Icons.fullscreen_rounded,
+                color: AppColors.textPrimary, 
+                size: 22,
+              ),
+            ),
+            IconButton(
               onPressed: _comingSoon,
               icon: const Icon(Icons.more_vert_rounded,
                   color: AppColors.textPrimary, size: 20),
@@ -680,89 +727,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // Overlay inferior: barra de progreso roja + fila con Cerrar,
   // COMENTAR, expandir/contraer pantalla
   // ---------------------------------------------------------------------
-  Widget _buildBottomOverlay() {
-    final controller = _videoPlayerController;
-    final duration = controller?.value.duration ?? Duration.zero;
-    final position = controller?.value.position ?? Duration.zero;
-    final hasFiniteDuration = duration.inMilliseconds > 0;
-    final progress = hasFiniteDuration
-        ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
-        : 1.0; // stream en vivo: barra llena en rojo
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(16, 10, 16, _isLandscape ? 10 : 20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [
-            Colors.black.withValues(alpha: 0.7),
-            Colors.transparent,
-          ],
-        ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 2.5,
-                activeTrackColor: AppColors.liveRed,
-                inactiveTrackColor: Colors.white.withValues(alpha: .3),
-                thumbColor: AppColors.liveRed,
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 6),
-                overlayShape:
-                    const RoundSliderOverlayShape(overlayRadius: 12),
-              ),
-              child: Slider(
-                value: progress,
-                onChanged: hasFiniteDuration
-                    ? (value) {
-                        final target = duration * value;
-                        controller?.seekTo(target);
-                      }
-                    : null,
-              ),
-            ),
-            Row(
-              children: [
-                TextButton.icon(
-                  onPressed: () {
-                    if (_isLandscape) _toggleOrientation();
-                    Navigator.of(context).pop();
-                  },
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  icon: const Icon(Icons.lock_outline_rounded, size: 18),
-                  label: const Text('Cerrar', style: TextStyle(fontSize: 12)),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: _comingSoon,
-                  style: TextButton.styleFrom(foregroundColor: Colors.white),
-                  icon: const Icon(Icons.mode_comment_outlined, size: 18),
-                  label:
-                      const Text('COMENTAR', style: TextStyle(fontSize: 12)),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: _toggleOrientation,
-                  icon: Icon(
-                    _isLandscape
-                        ? Icons.fullscreen_exit_rounded
-                        : Icons.fullscreen_rounded,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildLockButton() {
     return GestureDetector(
