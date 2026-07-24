@@ -58,8 +58,8 @@ class LiveTvService {
     final channels = data['channels'] as List<dynamic>? ?? [];
 
     return channels
-        .map((item) => LiveChannel.fromJson(item as Map<String, dynamic>))
-        .toList();
+      .map((item) => LiveChannel.fromJson(item as Map<String, dynamic>))
+      .toList();
   }
 
   /// Obtiene la URL del stream del canal seleccionado.
@@ -89,26 +89,6 @@ class LiveTvService {
     }
 
     return data['stream_url'].toString();
-  }
-
-  /// Información temporal del reproductor
-  Future<Map<String, dynamic>> getLiveTvData() async {
-    await Future.delayed(const Duration(seconds: 2));
-
-    return {
-      "currentChannel": {
-        "number": "001",
-        "name": "TC Noticias HD",
-        "isLive": true,
-      },
-      "channels": [
-        {"number": "001", "name": "TC Noticias HD"},
-        {"number": "002", "name": "TC Deportes HD"},
-        {"number": "003", "name": "TC Películas"},
-        {"number": "004", "name": "TC Música"},
-        {"number": "005", "name": "TC Infantil"},
-      ],
-    };
   }
 
   Future<String> getProxyStreamUrl({

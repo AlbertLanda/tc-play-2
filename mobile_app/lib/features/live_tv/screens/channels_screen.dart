@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../home/widgets/home_menu_card.dart';
 import '../models/live_channel.dart';
 import '../services/live_tv_service.dart';
 import 'player_screen.dart';
@@ -25,17 +26,14 @@ class ChannelsScreen extends StatefulWidget {
 
 class _ChannelsScreenState extends State<ChannelsScreen> {
   final LiveTvService _service = LiveTvService();
-
-  late Future<List<LiveChannel>> _channels;
-
   final TextEditingController _searchController = TextEditingController();
 
+  late Future<List<LiveChannel>> _channels;
   String _search = '';
 
   @override
   void initState() {
     super.initState();
-
     _channels = _service.getChannels(
       username: widget.username,
       password: widget.password,
@@ -51,7 +49,6 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
         categoryId: widget.categoryId,
       );
     });
-
     await _channels;
   }
 
@@ -59,6 +56,34 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  InputDecoration _searchDecoration() {
+    return InputDecoration(
+      hintText: 'Buscar canal...',
+      hintStyle: TextStyle(
+        color: AppColors.textSecondary.withValues(alpha: .6),
+        fontSize: 15,
+      ),
+      prefixIcon: const Icon(Icons.search_rounded,
+          color: AppColors.textSecondary, size: 20),
+      filled: true,
+      fillColor: Colors.white.withValues(alpha: .05),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(6),
+        borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
+      ),
+    );
   }
 
   @override
@@ -76,9 +101,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(
-                color: AppColors.neonGreen,
-              ),
+              child: CircularProgressIndicator(color: AppColors.primary),
             );
           }
 
@@ -87,18 +110,11 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
-                    Icons.error_outline,
-                    color: Colors.red,
-                    size: 48,
-                  ),
+                  const Icon(Icons.error_outline,
+                      color: AppColors.error, size: 48),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Error al cargar canales',
-                    style: TextStyle(
-                      color: AppColors.white,
-                    ),
-                  ),
+                  const Text('Error al cargar canales',
+                      style: TextStyle(color: AppColors.textPrimary)),
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
                     onPressed: _refresh,
@@ -111,47 +127,37 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
           }
 
           final channels = snapshot.data ?? [];
+          final filteredChannels = channels
+              .where(
+                  (c) => c.name.toLowerCase().contains(_search.toLowerCase()))
+              .toList();
 
-          final filteredChannels = channels.where((channel) {
-            return channel.name
-                .toLowerCase()
-                .contains(_search.toLowerCase());
-          }).toList();
-
-          
+          final width = MediaQuery.of(context).size.width;
+          final crossAxisCount = width >= 900 ? 5 : (width >= 600 ? 4 : 3);
 
           return RefreshIndicator(
             onRefresh: _refresh,
+            color: AppColors.primary,
             child: ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(20),
               children: [
                 TextField(
                   controller: _searchController,
-                  onChanged: (value) {
-                    setState(() {
-                      _search = value;
-                    });
-                  },
-                  decoration: InputDecoration(
-                    hintText: 'Buscar canal...',
-                    prefixIcon: const Icon(Icons.search),
-                    filled: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+                  style: const TextStyle(
+                      color: AppColors.textPrimary, fontSize: 15),
+                  onChanged: (value) => setState(() => _search = value),
+                  decoration: _searchDecoration(),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   '${filteredChannels.length} de ${channels.length} canales',
                   style: const TextStyle(
-                    color: AppColors.white,
+                    color: AppColors.textPrimary,
                     fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                    fontSize: 15,
                   ),
                 ),
                 const SizedBox(height: 16),
-
                 if (filteredChannels.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(top: 80),
@@ -159,91 +165,29 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                       child: Text(
                         'No se encontraron canales.',
                         style: TextStyle(
-                          color: AppColors.white70,
-                          fontSize: 16,
-                        ),
+                            color: AppColors.textSecondary, fontSize: 16),
                       ),
                     ),
                   )
                 else
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: filteredChannels.length,
-                  itemBuilder: (context, index) {
-                    final channel = filteredChannels[index];
-
-                    return Card(
-                      color: AppColors.white,
-                      elevation: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: ListTile(
-                        leading: channel.icon != null &&
-                                channel.icon!.isNotEmpty
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  channel.icon!,
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.cover,
-                                  errorBuilder:
-                                      (context, error, stackTrace) {
-                                    return Container(
-                                      width: 50,
-                                      height: 50,
-                                      decoration: BoxDecoration(
-                                        color: AppColors.neonGreen
-                                            .withValues(alpha: 0.15),
-                                        borderRadius:
-                                            BorderRadius.circular(8),
-                                      ),
-                                      child: const Icon(
-                                        Icons.live_tv_rounded,
-                                        color: AppColors.neonGreen,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              )
-                            : Container(
-                                width: 50,
-                                height: 50,
-                                decoration: BoxDecoration(
-                                  color: AppColors.neonGreen
-                                      .withValues(alpha: 0.15),
-                                  borderRadius:
-                                      BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.live_tv_rounded,
-                                  color: AppColors.neonGreen,
-                                ),
-                              ),
-                        title: Text(
-                          channel.name,
-                          style: const TextStyle(
-                            color: AppColors.title,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'ID: ${channel.id}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                            Text(
-                              'Tipo: ${channel.streamType}',
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          ],
-                        ),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: filteredChannels.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      mainAxisSpacing: 14,
+                      crossAxisSpacing: 14,
+                      childAspectRatio: 0.85,
+                    ),
+                    itemBuilder: (context, index) {
+                      final channel = filteredChannels[index];
+                      return LogoTile(
+                        title: channel.name,
+                        subtitle: channel.streamType,
+                        imageUrl: channel.icon,
+                        icon: Icons.live_tv_rounded,
+                        color: AppColors.primary,
                         onTap: () {
                           Navigator.push(
                             context,
@@ -258,10 +202,9 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                             ),
                           );
                         },
-                      ),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
               ],
             ),
           );

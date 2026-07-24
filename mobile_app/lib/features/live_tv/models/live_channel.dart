@@ -18,7 +18,9 @@ class LiveChannel {
       id: int.tryParse(json['id'].toString()) ?? 0,
       name: json['name']?.toString() ?? 'Sin nombre',
       categoryId: json['category_id']?.toString() ?? '',
-      icon: json['icon']?.toString(),
+      icon: json['icon']?.toString() ??
+            json['stream_icon']?.toString() ??
+            json['logo']?.toString(),
       streamType: json['stream_type']?.toString() ?? 'live',
     );
   }
