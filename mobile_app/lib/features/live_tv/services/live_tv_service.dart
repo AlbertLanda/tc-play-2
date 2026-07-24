@@ -103,6 +103,7 @@ class LiveTvService {
         'username': username,
         'password': password,
         'stream_id': streamId.toString(),
+        'device_profile': 'mobile',
       }),
     );
 
@@ -121,7 +122,10 @@ class LiveTvService {
     await http.post(
       Uri.parse('${ApiConstants.baseUrl}/api/xtream/live/stop-proxy/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'stream_id': streamId.toString()}),
+      body: jsonEncode({
+        'stream_id': streamId.toString(),
+        'device_profile': 'mobile',
+      }),
     );
   }
 }
