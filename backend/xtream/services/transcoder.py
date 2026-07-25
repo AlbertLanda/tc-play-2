@@ -303,7 +303,7 @@ def _hls_is_ready(output_key: str, min_segments: int) -> bool:
 
 
 def wait_for_hls_ready(
-    output_key: str, timeout_seconds: int = 15, min_segments: int = 1
+    output_key: str, timeout_seconds: int = 15, min_segments: int = 2
 ) -> bool:
     """
     Espera a que la salida HLS esté REALMENTE lista para reproducirse en
@@ -878,8 +878,8 @@ def _build_ffmpeg_command(
 
     command += [
         "-f", "hls",
-        "-hls_time", "1",
-        "-hls_list_size", "5",
+        "-hls_time", "2",
+        "-hls_list_size", "8",
         "-hls_flags", "delete_segments+append_list+omit_endlist",
         "-hls_segment_filename", str(segment_pattern),
         str(output_path),
