@@ -56,14 +56,14 @@ WEB_COMPATIBLE_AUDIO = {"aac", "mp3"}
 # envía device_profile.
 DEVICE_PROFILES = {
     "mobile": {
-        "max_height": 720,
-        "target_fps": 30,
-        "video_bitrate": "2500k",
-        "maxrate": "2500k",
-        "bufsize": "5000k",
-        "gop": "90",
-        "normalize_fps": True,
-    },
+            "max_height": 720,
+            "target_fps": 30,
+            "video_bitrate": "1800k",
+            "maxrate": "2000k",
+            "bufsize": "4000k",
+            "gop": "60",
+            "normalize_fps": True,
+        },
     "tv": {
         # TV / TV Box: COPY-FIRST. normalize_fps=False -> NO se fuerza transcode
         # por framerate; se respeta el video original (1080p60 incluido) y solo
@@ -303,7 +303,7 @@ def _hls_is_ready(output_key: str, min_segments: int) -> bool:
 
 
 def wait_for_hls_ready(
-    output_key: str, timeout_seconds: int = 15, min_segments: int = 2
+    output_key: str, timeout_seconds: int = 15, min_segments: int = 1
 ) -> bool:
     """
     Espera a que la salida HLS esté REALMENTE lista para reproducirse en
@@ -840,9 +840,11 @@ def _build_ffmpeg_command(
             device_profile, DEVICE_PROFILES[DEFAULT_DEVICE_PROFILE]
         )
 
+        preset = "ultrafast" if device_profile == "mobile" else "veryfast"
+
         command += [
             "-c:v", "libx264",
-            "-preset", "veryfast",
+            "-preset", preset,
             "-tune", "zerolatency",
         ]
 
@@ -876,9 +878,9 @@ def _build_ffmpeg_command(
 
     command += [
         "-f", "hls",
-        "-hls_time", "3",
-        "-hls_list_size", "6",
-        "-hls_flags", "delete_segments",
+        "-hls_time", "1",
+        "-hls_list_size", "5",
+        "-hls_flags", "delete_segments+append_list+omit_endlist",
         "-hls_segment_filename", str(segment_pattern),
         str(output_path),
     ]

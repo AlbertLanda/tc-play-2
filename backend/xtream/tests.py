@@ -500,15 +500,21 @@ class TranscoderModeTests(SimpleTestCase):
             "transcode_audio",
         )
 
-    def test_build_command_mobile_720p30_2500k(self):
-        """Perfil mobile: escala a 720p, fps=30 y bitrate 2500k."""
+    def test_build_command_mobile_720p30_1800k(self):
+        """Perfil mobile: escala a 720p, fps=30, bitrate 1800k y preset ultrafast."""
         cmd = transcoder._build_ffmpeg_command(
             "http://x", "out.m3u8", "transcode", device_profile="mobile"
         )
+
         vf = cmd[cmd.index("-vf") + 1]
+
         self.assertIn("min(720,ih)", vf)
         self.assertIn("fps=30", vf)
-        self.assertEqual(cmd[cmd.index("-b:v") + 1], "2500k")
+        self.assertEqual(cmd[cmd.index("-b:v") + 1], "1800k")
+        self.assertEqual(cmd[cmd.index("-maxrate") + 1], "2000k")
+        self.assertEqual(cmd[cmd.index("-bufsize") + 1], "4000k")
+        self.assertEqual(cmd[cmd.index("-g") + 1], "60")
+        self.assertEqual(cmd[cmd.index("-preset") + 1], "ultrafast")
 
     def test_build_command_tv_720p30_3000k(self):
         """Perfil tv: escala a 720p, fps=30 y bitrate mayor (3000k)."""
