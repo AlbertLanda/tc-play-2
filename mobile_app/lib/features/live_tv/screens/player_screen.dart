@@ -631,45 +631,47 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 
   Widget _buildPlayerContent() {
-    if (!_isInitializingPlayer && !_playerError) {
-      return Center(
-        child: Video(
-          controller: _playerController.videoController,
-          controls: NoVideoControls,
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Video(
+            controller: _playerController.videoController,
+            controls: NoVideoControls,
+          ),
         ),
-      );
-    }
 
-    if (_isInitializingPlayer) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.primary),
-      );
-    }
-
-    if (_playerError) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: AppColors.error, size: 50),
-            const SizedBox(height: 16),
-            const Text(
-              'No se pudo reproducir el canal.',
-              style: TextStyle(color: AppColors.textPrimary),
+        if (_isInitializingPlayer)
+          const Center(
+            child: CircularProgressIndicator(
+              color: AppColors.primary,
             ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _refresh,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Reintentar'),
-            ),
-          ],
-        ),
-      );
-    }
+          ),
 
-    return const Center(
-      child: CircularProgressIndicator(color: AppColors.primary),
+        if (_playerError)
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  color: AppColors.error,
+                  size: 50,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'No se pudo reproducir el canal.',
+                  style: TextStyle(color: AppColors.textPrimary),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: _refresh,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reintentar'),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
