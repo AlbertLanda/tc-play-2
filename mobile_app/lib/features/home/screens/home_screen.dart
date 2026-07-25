@@ -139,7 +139,7 @@ void _reloadFavorites() {
   }
 
   // ---------------------------------------------------------------------
-  // Top bar: logo + "Suscríbete" + notificaciones + búsqueda + cuenta
+  // Top bar: logo + notificaciones + búsqueda + cuenta
   // ---------------------------------------------------------------------
   Widget _buildTopBar() {
     return Padding(
@@ -148,25 +148,6 @@ void _reloadFavorites() {
         children: [
           AppTheme.brandmark(fontSize: 15, letterSpacing: 3),
           const Spacer(),
-          GestureDetector(
-            onTap: _comingSoon,
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.liveRed,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Text(
-                'Suscríbete',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ),
           IconButton(
             onPressed: _comingSoon,
             icon: const Icon(Icons.notifications_none_rounded,

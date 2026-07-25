@@ -8,7 +8,6 @@ import '../../home/widgets/home_menu_card.dart';
 import '../models/live_category.dart';
 import '../models/live_channel.dart';
 import '../services/live_tv_service.dart';
-import '../widgets/live_player.dart';
 import 'channels_screen.dart';
 import 'player_screen.dart';
 
@@ -35,8 +34,6 @@ class LiveTvHomeScreen extends StatefulWidget {
 class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
   final LiveTvService _service = LiveTvService();
 
-  LiveChannel? _selectedChannel;
-
   late Future<List<LiveCategory>> _categoriesFuture;
   final Map<String, Future<List<LiveChannel>>> _channelsByCategory = {};
 
@@ -49,7 +46,6 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
       username: widget.username,
       password: widget.password,
     );
-    _loadDefaultChannel();
   }
 
   Future<List<LiveChannel>> _channelsFor(String categoryId) {
@@ -62,34 +58,20 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
       ),
     );
   }
-  Future<void> _loadDefaultChannel() async {
-
-  final categories = await _categoriesFuture;
-
-  if (categories.isEmpty) return;
-
-  final channels = await _channelsFor(
-    categories.first.id,
-  );
-
-  if (channels.isEmpty) return;
-
-
-  final america = channels.first;
-
-
-  if (!mounted) return;
-
-  setState(() {
-    _selectedChannel = america;
-  });
-
-}
 
   void _openChannel(LiveChannel channel) {
-    setState(() {
-      _selectedChannel = channel;
-    });
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          username: widget.username,
+          password: widget.password,
+          streamId: channel.id,
+          channelName: channel.name,
+          channelIcon: channel.icon,
+        ),
+      ),
+    );
   }
 
   void _seeAll(LiveCategory category) {
@@ -257,34 +239,8 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
             return ListView(
               padding: const EdgeInsets.only(bottom: 24),
               children: [
-                if (_selectedChannel != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal:20),
-                  child: LivePlayer(
-                    streamId: _selectedChannel!.id,
-                    username: widget.username,
-                    password: widget.password,
-                    channelName: _selectedChannel!.name,
-                    channelIcon: _selectedChannel!.icon,
-                    onFullscreen: (){
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => PlayerScreen(
-                            username: widget.username,
-                            password: widget.password,
-                            streamId: _selectedChannel!.id,
-                            channelName: _selectedChannel!.name,
-                            channelIcon: _selectedChannel!.icon,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
 
                 const SizedBox(height:16),
-                const SizedBox(height: 14),
                 _buildTabsBar(categories),
                 const SizedBox(height: 6),
 

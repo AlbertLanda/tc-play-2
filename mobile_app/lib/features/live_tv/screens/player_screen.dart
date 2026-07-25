@@ -485,15 +485,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     await _startAutomaticReconnect();
   }
 
-  void _seekRelative(Duration offset) {
-    final currentPosition = _playerController.player.state.position;
-    final target = currentPosition + offset;
-    _playerController.player.seek(
-      target < Duration.zero ? Duration.zero : target,
-    );
-    _scheduleHideControls();
-  }
-
   void _togglePlayPause() {
     _playerController.player.playOrPause();
     _scheduleHideControls();
@@ -763,24 +754,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   Widget _buildCenterControls() {
     final isPlaying = _playerController.player.state.playing;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _circleIconButton(
-          icon: Icons.replay_10_rounded,
-          onTap: () => _seekRelative(const Duration(seconds: -10)),
-        ),
-        const SizedBox(width: 34),
-        _circleIconButton(
-          icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-          size: 34, padding: 14, onTap: _togglePlayPause,
-        ),
-        const SizedBox(width: 34),
-        _circleIconButton(
-          icon: Icons.forward_10_rounded,
-          onTap: () => _seekRelative(const Duration(seconds: 10)),
-        ),
-      ],
+
+    return _circleIconButton(
+      icon: isPlaying
+          ? Icons.pause_rounded
+          : Icons.play_arrow_rounded,
+      size: 34,
+      padding: 14,
+      onTap: _togglePlayPause,
     );
   }
 
