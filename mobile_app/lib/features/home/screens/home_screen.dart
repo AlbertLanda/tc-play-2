@@ -368,7 +368,7 @@ void _reloadFavorites() {
                 title: channel.name,
                 subtitle: 'FAVORITO',
                 imageUrl: channel.icon,
-                color: Colors.amber,
+                color: AppColors.favoriteGold,
                 onTap: () async {
                   await Navigator.push(
                     context,

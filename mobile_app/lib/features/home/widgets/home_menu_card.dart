@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 
 /// Dark rounded tile with a colored icon/logo — used for category and
-/// channel grids. Matches the login card's look: dark fill, thin neon
-/// border, soft shadow.
+/// channel grids. Matches the login card's look: dark fill, thin border
+/// in the brand's navy family, soft shadow.
 class LogoTile extends StatelessWidget {
   const LogoTile({
     super.key,

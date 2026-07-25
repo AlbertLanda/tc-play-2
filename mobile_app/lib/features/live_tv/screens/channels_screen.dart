@@ -30,6 +30,9 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
 
   late Future<List<LiveChannel>> _channels;
   String _search = '';
+  
+  // Candado para evitar el múltiple tap y el audio fantasma
+  bool _isNavigating = false; 
 
   @override
   void initState() {
@@ -188,8 +191,18 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                         imageUrl: channel.icon,
                         icon: Icons.live_tv_rounded,
                         color: AppColors.primary,
-                        onTap: () {
-                          Navigator.push(
+                        onTap: () async {
+                          // Si ya estamos navegando, ignoramos clics adicionales
+                          if (_isNavigating) return;
+                          
+                          setState(() => _isNavigating = true);
+
+                          // Ocultar teclado si buscaron un canal
+                          FocusManager.instance.primaryFocus?.unfocus();
+
+                          // Hacemos un await del push. 
+                          // La ejecución se pausará aquí hasta que el usuario cierre el PlayerScreen.
+                          await Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (_) => PlayerScreen(
@@ -201,6 +214,11 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                               ),
                             ),
                           );
+
+                          // Cuando el usuario regresa, liberamos el candado
+                          if (mounted) {
+                            setState(() => _isNavigating = false);
+                          }
                         },
                       );
                     },

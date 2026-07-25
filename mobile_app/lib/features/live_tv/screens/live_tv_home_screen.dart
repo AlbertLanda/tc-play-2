@@ -75,10 +75,7 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
   if (channels.isEmpty) return;
 
 
-  final america = channels.firstWhere(
-    (c) => c.name.toLowerCase().contains('america'),
-    orElse: () => channels.first,
-  );
+  final america = channels.first;
 
 
   if (!mounted) return;
@@ -90,12 +87,10 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
 }
 
   void _openChannel(LiveChannel channel) {
-
-  setState(() {
-    _selectedChannel = channel;
-  });
-
-}
+    setState(() {
+      _selectedChannel = channel;
+    });
+  }
 
   void _seeAll(LiveCategory category) {
     Navigator.push(

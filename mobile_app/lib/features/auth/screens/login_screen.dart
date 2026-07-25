@@ -107,7 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: TextStyle(
+      hintStyle: GoogleFonts.manrope(
         color: AppColors.textSecondary.withValues(alpha: .6),
         fontSize: 15,
       ),
@@ -124,17 +124,17 @@ class _LoginScreenState extends State<LoginScreen> {
         vertical: 16,
       ),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         borderSide: const BorderSide(
-          color: AppColors.primary,
+          color: AppColors.accent,
           width: 1.4,
         ),
       ),
@@ -142,27 +142,16 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // ---------------------------------------------------------------------
-  // Texto "TC PLAY 2.0" con tipografía distintiva + degradado neon
+  // Texto "TC PLAY 2.0" — Manrope sólido, sin degradado ni resplandor
   // ---------------------------------------------------------------------
   Widget _buildBrandmark() {
-    return ShaderMask(
-      shaderCallback: (bounds) => const LinearGradient(
-        colors: [AppColors.accent, AppColors.primary],
-      ).createShader(bounds),
-      child: Text(
-        'TC PLAY 2.0',
-        style: GoogleFonts.orbitron(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 4,
-          shadows: [
-            Shadow(
-              color: AppColors.primary.withValues(alpha: .6),
-              blurRadius: 16,
-            ),
-          ],
-        ),
+    return Text(
+      'TC PLAY 2.0',
+      style: GoogleFonts.manrope(
+        color: AppColors.textPrimary,
+        fontSize: 14,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 3,
       ),
     );
   }
@@ -176,16 +165,16 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: .55),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: AppColors.primary.withValues(alpha: .2),
+          color: AppColors.accent.withValues(alpha: .18),
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: .6),
-            blurRadius: 40,
-            offset: const Offset(0, 20),
+            color: Colors.black.withValues(alpha: .5),
+            blurRadius: 32,
+            offset: const Offset(0, 16),
           ),
         ],
       ),
@@ -197,9 +186,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
           const SizedBox(height: 32),
 
-          const Text(
+          Text(
             'USUARIO',
-            style: TextStyle(
+            style: GoogleFonts.manrope(
               color: AppColors.textSecondary,
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -209,7 +198,7 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: 8),
           TextField(
             controller: _usernameController,
-            style: const TextStyle(color: Colors.white, fontSize: 15),
+            style: GoogleFonts.manrope(color: Colors.white, fontSize: 15),
             decoration: _fieldDecoration(
               hint: 'Tu usuario',
               icon: Icons.alternate_email_rounded,
@@ -218,9 +207,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
           const SizedBox(height: 18),
 
-          const Text(
+          Text(
             'CONTRASEÑA',
-            style: TextStyle(
+            style: GoogleFonts.manrope(
               color: AppColors.textSecondary,
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -231,7 +220,7 @@ class _LoginScreenState extends State<LoginScreen> {
           TextField(
             controller: _passwordController,
             obscureText: _obscurePassword,
-            style: const TextStyle(color: Colors.white, fontSize: 15),
+            style: GoogleFonts.manrope(color: Colors.white, fontSize: 15),
             decoration: _fieldDecoration(
               hint: '••••••••',
               icon: Icons.lock_outline_rounded,
@@ -267,8 +256,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       value: _rememberMe,
                       onChanged: (v) =>
                           setState(() => _rememberMe = v ?? false),
-                      activeColor: AppColors.primary,
-                      checkColor: Colors.black,
+                      activeColor: AppColors.accent,
+                      checkColor: AppColors.textPrimary,
                       side: BorderSide(
                         color: AppColors.textSecondary.withValues(alpha: .5),
                       ),
@@ -278,9 +267,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Text(
+                  Text(
                     'Recordarme',
-                    style: TextStyle(
+                    style: GoogleFonts.manrope(
                       color: AppColors.textSecondary,
                       fontSize: 13,
                     ),
@@ -294,9 +283,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 onPressed: () {},
-                child: const Text(
+                child: Text(
                   '¿Olvidaste tu contraseña?',
-                  style: TextStyle(
+                  style: GoogleFonts.manrope(
                     color: AppColors.accent,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -308,22 +297,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
           const SizedBox(height: 26),
 
-          Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: .4),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: PrimaryButton(
-              text: 'Iniciar sesión',
-              loading: _isLoading,
-              onPressed: _login,
-            ),
+          PrimaryButton(
+            text: 'Iniciar sesión',
+            loading: _isLoading,
+            onPressed: _login,
           ),
 
           const SizedBox(height: 30),
@@ -348,7 +325,9 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
 
           // Degradado: la imagen se ve arriba, se oscurece hacia el centro
-          // donde está el formulario, para mantener legibilidad
+          // donde está el formulario, para mantener legibilidad. Se tiñe
+          // levemente de azul marino (en vez de negro puro) para que el
+          // fondo se funda con la paleta de marca.
           IgnorePointer(
             child: Container(
               decoration: BoxDecoration(
@@ -356,9 +335,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(alpha: .15),
-                    Colors.black.withValues(alpha: .35),
-                    Colors.black.withValues(alpha: .55),
+                    AppColors.background.withValues(alpha: .15),
+                    AppColors.background.withValues(alpha: .45),
+                    AppColors.background.withValues(alpha: .8),
                   ],
                   stops: const [0.0, 0.45, 1.0],
                 ),

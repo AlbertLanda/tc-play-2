@@ -128,9 +128,9 @@ class _BannerCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primary.withValues(alpha: .3),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
+              color: Colors.black.withValues(alpha: .35),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
@@ -169,7 +169,7 @@ class _BannerCard extends StatelessWidget {
                 Text(
                   banner.title,
                   style: const TextStyle(
-                    color: Colors.black,
+                    color: AppColors.textPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                     height: 1.2,
@@ -181,7 +181,7 @@ class _BannerCard extends StatelessWidget {
                     child: Text(
                       banner.subtitle!,
                       style: TextStyle(
-                        color: Colors.black.withValues(alpha: .75),
+                        color: AppColors.textPrimary.withValues(alpha: .8),
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -194,23 +194,23 @@ class _BannerCard extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         if (banner.footerLeft != null)
-                          Text(
-                            banner.footerLeft!,
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
+                        Text(
+                          banner.footerLeft!,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
                           ),
+                        ),
                         if (banner.footerRight != null)
                           Text(
                             banner.footerRight!,
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: TextStyle(
+                            color: AppColors.textPrimary.withValues(alpha: .8),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
                           ),
+                        ),
                       ],
                     ),
                   ),

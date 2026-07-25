@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
+import '../controllers/live_tv_player_controller.dart';
 import '../services/live_tv_service.dart';
 import '../../../core/constants/app_colors.dart';
 
@@ -20,7 +21,6 @@ class LivePlayer extends StatefulWidget {
   final String password;
   final String channelName;
   final String? channelIcon;
-
   final VoidCallback? onFullscreen;
 
   @override
@@ -28,87 +28,67 @@ class LivePlayer extends StatefulWidget {
 }
 
 class _LivePlayerState extends State<LivePlayer> {
-   final LiveTvService _service = LiveTvService();
+  final LiveTvService _service = LiveTvService();
+  late LiveTvPlayerController _tvController;
 
-    VideoPlayerController? _controller;
+  bool _isLoading = true;
 
-    bool _isLoading = true;
-    bool _hasError = false; 
-
-    @override
-    void initState() {
-        super.initState();
-        _loadChannel();
-    }
-
-    @override
-void didUpdateWidget(covariant LivePlayer oldWidget) {
-  super.didUpdateWidget(oldWidget);
-
-  if (oldWidget.streamId != widget.streamId) {
-
-    setState(() {
-      _isLoading = true;
-      _hasError = false;
-    });
-
+  @override
+  void initState() {
+    super.initState();
+    _tvController = LiveTvPlayerController();
     _loadChannel();
   }
-}
 
-Future<void> _loadChannel() async {
-  try {
-    final url = await _service.getProxyStreamUrl(
-      username: widget.username,
-      password: widget.password,
-      streamId: widget.streamId,
-    );
-
-    await _controller?.dispose();
-    _controller = null;
-
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-    );
-
-    await controller.initialize();
-
-    await controller.play();
-
-    if (!mounted) return;
-
-    setState(() {
-      _controller = controller;
-      _isLoading = false;
-    });
-
-  } catch (e) {
-    if (!mounted) return;
-
-    setState(() {
-      _isLoading = false;
-      _hasError = true;
-    });
+  @override
+  void didUpdateWidget(covariant LivePlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.streamId != widget.streamId) {
+      _loadChannel();
+    }
   }
-}
+
+  Future<void> _loadChannel() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final url = await _service.getProxyStreamUrl(
+        username: widget.username,
+        password: widget.password,
+        streamId: widget.streamId,
+      );
+
+      debugPrint("LIVE PLAYER URL: $url");
+
+      await _tvController.initializePlayer(url);
+
+    } catch (e) {
+      debugPrint("ERROR OBTENIENDO URL: $e");
+      _tvController.hasError = true;
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-  return const Center(
-    child: CircularProgressIndicator(
-      color: AppColors.primary,
-    ),
-  );
-}
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
 
-if (_hasError) {
-  return const Center(
-    child: Text(
-      'No se pudo reproducir el canal',
-      style: TextStyle(color: Colors.white),
-    ),
-  );
-}
+    if (_tvController.hasError) {
+      return const Center(
+        child: Text(
+          'No se pudo reproducir el canal',
+          style: TextStyle(color: Colors.white),
+        ),
+      );
+    }
 
     return Container(
       height: 220,
@@ -119,14 +99,11 @@ if (_hasError) {
       ),
       child: Stack(
         children: [
-            if (_controller != null &&
-                _controller!.value.isInitialized)
-        Center(
-            child: AspectRatio(
-                aspectRatio: _controller!.value.aspectRatio,
-                child: VideoPlayer(_controller!),
-            ),
-        ),
+          // El widget Video reemplaza a VideoPlayer y AspectRatio
+          Video(
+            controller: _tvController.videoController,
+            controls: NoVideoControls, // Oculta los controles por defecto de MediaKit
+          ),
 
           Positioned(
             left: 16,
@@ -146,10 +123,7 @@ if (_hasError) {
             bottom: 8,
             child: IconButton(
               onPressed: widget.onFullscreen,
-              icon: const Icon(
-                Icons.fullscreen_rounded,
-                color: Colors.white,
-              ),
+              icon: const Icon(Icons.fullscreen_rounded, color: Colors.white),
             ),
           ),
         ],
@@ -158,9 +132,9 @@ if (_hasError) {
   }
 
   @override
-void dispose() {
-  _controller?.dispose();
-  super.dispose();
-}
-
+  void dispose() {
+    _tvController.dispose();
+    _service.stopProxy(streamId: widget.streamId);
+    super.dispose();
+  }
 }

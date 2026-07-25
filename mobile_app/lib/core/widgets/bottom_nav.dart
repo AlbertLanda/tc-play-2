@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/live_tv/screens/live_tv_home_screen.dart';
-import '../../features/movies/screens/movies_screen.dart';
-import '../../features/video/screens/video_screen.dart';
 
 /// Barra inferior compartida por las 4 pantallas principales
 /// (Inicio / TV en Vivo / Películas / Video), igual que en las capturas
@@ -24,53 +22,49 @@ class AppBottomNav extends StatelessWidget {
   final String password;
 
   static const _items = [
-    BottomNavigationBarItem(
-      icon: Icon(Icons.home_rounded),
-      label: 'Inicio',
-    ),
-    BottomNavigationBarItem(
-      icon: Icon(Icons.live_tv_rounded),
-      label: 'TV en Vivo',
-    ),
-    BottomNavigationBarItem(
-      icon: Icon(Icons.movie_rounded),
-      label: 'Películas',
-    ),
-    BottomNavigationBarItem(
-      icon: Icon(Icons.ondemand_video_rounded),
-      label: 'Video',
-    ),
-  ];
+  BottomNavigationBarItem(
+    icon: Icon(Icons.home_rounded),
+    label: 'Inicio',
+  ),
+  BottomNavigationBarItem(
+    icon: Icon(Icons.live_tv_rounded),
+    label: 'TV en Vivo',
+  ),
+];
 
   void _onTap(BuildContext context, int index) {
-    if (index == currentIndex) return;
+  if (index == currentIndex) return;
 
-    late final Widget target;
-    switch (index) {
-      case 0:
-        target = HomeScreen(username: username, password: password);
-        break;
-      case 1:
-        target = LiveTvHomeScreen(username: username, password: password);
-        break;
-      case 2:
-        target = MoviesScreen(username: username, password: password);
-        break;
-      case 3:
-      default:
-        target = VideoScreen(username: username, password: password);
-        break;
-    }
+  late final Widget target;
 
-    Navigator.pushReplacement(
-      context,
-      PageRouteBuilder(
-        transitionDuration: Duration.zero,
-        reverseTransitionDuration: Duration.zero,
-        pageBuilder: (context, animation, secondaryAnimation) => target,
-      ),
-    );
+  switch (index) {
+    case 0:
+      target = HomeScreen(
+        username: username,
+        password: password,
+      );
+      break;
+
+    case 1:
+      target = LiveTvHomeScreen(
+        username: username,
+        password: password,
+      );
+      break;
+
+    default:
+      return;
   }
+
+  Navigator.pushReplacement(
+    context,
+    PageRouteBuilder(
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      pageBuilder: (_, __, ___) => target,
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {

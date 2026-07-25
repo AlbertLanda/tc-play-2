@@ -7,6 +7,11 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData get theme {
+    // Manrope: tipografía sans-serif limpia y moderna, pensada para
+    // interfaces (buena legibilidad en tamaños pequeños), sin el
+    // carácter "display/futurista" de Orbitron.
+    final textTheme = GoogleFonts.manropeTextTheme(ThemeData.dark().textTheme);
+
     final base = ThemeData(
       brightness: Brightness.dark,
       useMaterial3: true,
@@ -22,19 +27,19 @@ class AppTheme {
     );
 
     return base.copyWith(
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        iconTheme: IconThemeData(color: AppColors.textPrimary),
-        titleTextStyle: TextStyle(
+        iconTheme: const IconThemeData(color: AppColors.textPrimary),
+        titleTextStyle: GoogleFonts.manrope(
           color: AppColors.textPrimary,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w700,
           fontSize: 17,
-          letterSpacing: 0.5,
+          letterSpacing: 0.2,
         ),
       ),
-      textTheme: base.textTheme.apply(
+      textTheme: textTheme.apply(
         bodyColor: AppColors.textPrimary,
         displayColor: AppColors.textPrimary,
       ),
@@ -43,24 +48,25 @@ class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: AppColors.primary.withValues(alpha: .12)),
+          side: BorderSide(color: AppColors.accent.withValues(alpha: .14)),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
-          foregroundColor: Colors.black,
+          foregroundColor: AppColors.textPrimary,
           elevation: 0,
+          textStyle: GoogleFonts.manrope(fontWeight: FontWeight.w600),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(8),
           ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white.withValues(alpha: .05),
-        hintStyle: TextStyle(
-          color: AppColors.textSecondary.withValues(alpha: .6),
+        hintStyle: GoogleFonts.manrope(
+          color: AppColors.textSecondary.withValues(alpha: .65),
           fontSize: 15,
         ),
         contentPadding: const EdgeInsets.symmetric(
@@ -68,50 +74,45 @@ class AppTheme {
           vertical: 16,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: AppColors.primary, width: 1.4),
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: AppColors.accent, width: 1.4),
         ),
       ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: AppColors.surface,
-        selectedItemColor: AppColors.primary,
+        selectedItemColor: AppColors.accent,
         unselectedItemColor: AppColors.textSecondary,
         type: BottomNavigationBarType.fixed,
         showUnselectedLabels: true,
         elevation: 0,
+        selectedLabelStyle: GoogleFonts.manrope(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+        unselectedLabelStyle: GoogleFonts.manrope(fontSize: 11),
       ),
     );
   }
 
-  /// "TC PLAY" brandmark in Orbitron with the neon gradient + glow used on
-  /// the login screen — reused across the app for visual consistency.
-  static Widget brandmark({double fontSize = 13, double letterSpacing = 4}) {
-    return ShaderMask(
-      shaderCallback: (bounds) => const LinearGradient(
-        colors: [AppColors.accent, AppColors.primary],
-      ).createShader(bounds),
-      child: Text(
-        'TC PLAY',
-        style: GoogleFonts.orbitron(
-          color: Colors.white,
-          fontSize: fontSize,
-          fontWeight: FontWeight.w600,
-          letterSpacing: letterSpacing,
-          shadows: [
-            Shadow(
-              color: AppColors.primary.withValues(alpha: .6),
-              blurRadius: 16,
-            ),
-          ],
-        ),
+  /// Marca "TC Play" — versión sobria en Manrope ExtraBold, sin
+  /// degradado ni resplandor neón. El peso y el espaciado entre
+  /// letras aportan carácter por sí solos.
+  static Widget brandmark({double fontSize = 15, double letterSpacing = 1.2}) {
+    return Text(
+      'TC PLAY',
+      style: GoogleFonts.manrope(
+        color: AppColors.textPrimary,
+        fontSize: fontSize,
+        fontWeight: FontWeight.w800,
+        letterSpacing: letterSpacing,
       ),
     );
   }

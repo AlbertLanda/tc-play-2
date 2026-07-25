@@ -1,44 +1,56 @@
-import 'package:video_player/video_player.dart';
-import 'dart:core';
-
-import '../services/live_tv_service.dart';
+import 'package:flutter/foundation.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 class LiveTvPlayerController {
-  final LiveTvService service = LiveTvService();
+  // 1. INSTANCIA GLOBAL (Singleton): Garantiza que solo exista UN reproductor en toda la app.
+  static Player? _globalPlayer;
+  
+  late final Player player;
+  late final VideoController videoController;
 
-  VideoPlayerController? videoController;
-
-  bool isInitializing = false;
   bool hasError = false;
-  bool isReconnecting = false;
-  bool isDisposed = false;
 
-  Future<VideoPlayerController?> createController(String url) async {
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(url),
-      videoPlayerOptions: VideoPlayerOptions(
-        mixWithOthers: true,
+  LiveTvPlayerController() {
+    // Si el motor global no existe, lo creamos. Si ya existe, lo reutilizamos.
+    _globalPlayer ??= Player(
+      configuration: const PlayerConfiguration(
+        bufferSize: 1024 * 1024 * 32, // 32MB de buffer
       ),
     );
+    
+    player = _globalPlayer!;
+    videoController = VideoController(player);
+  }
 
+  Future<void> initializePlayer(String url) async {
     try {
-      await controller.initialize();
+      hasError = false;
+      
+      // 2. DETENCIÓN FORZADA: Cortamos de raíz cualquier canal que estuviera sonando
+      await player.stop();
 
-      if (!controller.value.isInitialized) {
-        await controller.dispose();
-        return null;
-      }
+      final media = Media(
+        url,
+        httpHeaders: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Connection': 'keep-alive',
+        },
+      );
 
-      return controller;
+      await player.open(media);
+      await player.play();
+      
     } catch (e) {
-      await controller.dispose();
-      return null;
+      debugPrint("MEDIA KIT ERROR: $e");
+      hasError = true;
     }
   }
 
   Future<void> dispose() async {
-    isDisposed = true;
-    await videoController?.dispose();
-    videoController = null;
+    // 3. EN LUGAR DE DESTRUIR EL MOTOR, SOLO LO DETENEMOS
+    // Así mantenemos la instancia global lista para el siguiente canal y matamos el audio.
+    await player.stop(); 
   }
 }
