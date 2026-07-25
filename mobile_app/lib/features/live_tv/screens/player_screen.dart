@@ -641,11 +641,24 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         ),
 
         if (_isInitializingPlayer)
-          const Center(
-            child: CircularProgressIndicator(
-              color: AppColors.primary,
+        const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                color: AppColors.primary,
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Cargando canal...',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+              ),
             ),
-          ),
+          ],
+        ),
+      ),
 
         if (_playerError)
           Center(
@@ -659,7 +672,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'No se pudo reproducir el canal.',
+                  'No se pudo reproducir este canal.',
                   style: TextStyle(color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 16),
@@ -667,6 +680,13 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                   onPressed: _refresh,
                   icon: const Icon(Icons.refresh),
                   label: const Text('Reintentar'),
+                ),
+                const SizedBox(height: 12),
+
+                OutlinedButton.icon(
+                  onPressed: _closePlayerAndExit,
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Volver'),
                 ),
               ],
             ),

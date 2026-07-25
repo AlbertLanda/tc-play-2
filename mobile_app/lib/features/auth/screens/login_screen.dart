@@ -35,6 +35,8 @@ class _LoginScreenState extends State<LoginScreen> {
   // ---------------------------------------------------------------------
   // ---------------------------------------------------------------------
   Future<void> _login() async {
+    if (_isLoading) return;
+    
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
 

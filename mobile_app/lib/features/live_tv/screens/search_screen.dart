@@ -30,6 +30,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _searchTimer;
 
   bool _loading = false;
+  bool _isNavigating = false;
 
   List<LiveCategory> _categories = [];
   List<LiveChannel> _channels = [];
@@ -60,16 +61,20 @@ class _SearchScreenState extends State<SearchScreen> {
         password: widget.password,
       );
 
+      final responses = await Future.wait(
+        categories.map(
+          (category) => _service.getChannels(
+            username: widget.username,
+            password: widget.password,
+            categoryId: category.id,
+          ),
+        ),
+      );
+
       final List<LiveChannel> channels = [];
 
-      for (final category in categories) {
-        final result = await _service.getChannels(
-          username: widget.username,
-          password: widget.password,
-          categoryId: category.id,
-        );
-
-        channels.addAll(result);
+      for (final list in responses) {
+        channels.addAll(list);
       }
 
       SearchCache.categories = categories;
@@ -92,7 +97,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchTimer = Timer(
       const Duration(milliseconds: 600),
       () {
-        if (query.trim().length < 3) {
+        if (query.trim().isEmpty) {
           setState(() {
             _categories = [];
             _channels = [];
@@ -119,19 +124,31 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
 
-  void _openPlayer(LiveChannel channel) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PlayerScreen(
-          username: widget.username,
-          password: widget.password,
-          streamId: channel.id,
-          channelName: channel.name,
-          channelIcon: channel.icon,
+  Future<void> _openPlayer(LiveChannel channel) async {
+    if (_isNavigating) return;
+
+    _isNavigating = true;
+
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(
+            username: widget.username,
+            password: widget.password,
+            streamId: channel.id,
+            channelName: channel.name,
+            channelIcon: channel.icon,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isNavigating = false;
+        });
+      }
+    }
   }
 
 
@@ -176,7 +193,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
 
               decoration: InputDecoration(
-                hintText: 'Buscar canal o categoría...',
+                hintText: 'Buscar canal...',
                 hintStyle: TextStyle(
                   color: Colors.white.withValues(alpha: .5),
                 ),
@@ -303,13 +320,13 @@ class _SearchScreenState extends State<SearchScreen> {
                   if (!_loading &&
                       _channels.isEmpty &&
                       _categories.isEmpty &&
-                      _controller.text.length >= 3)
+                      _controller.text.trim().isNotEmpty)
 
                     const Center(
                       child: Padding(
                         padding: EdgeInsets.all(30),
                         child: Text(
-                          'No se encontraron resultados',
+                          'No encontramos canales con ese nombre.',
                           style: TextStyle(
                             color: Colors.white54,
                           ),

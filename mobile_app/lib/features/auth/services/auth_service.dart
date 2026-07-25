@@ -28,14 +28,33 @@ class AuthService {
           return true;
         }
 
-        throw Exception(data['detail'] ?? 'Credenciales incorrectas.');
+        throw Exception(
+          data['detail'] ?? 'Usuario o contraseña incorrectos.',
+        );
       }
 
-      throw Exception(data['detail'] ?? 'Error al iniciar sesión.');
-    } catch (_) {
       throw Exception(
-        'No fue posible conectar con el servidor. Verifique su conexión.',
+        data['detail'] ?? 'No fue posible iniciar sesión.',
       );
+      
+    } on http.ClientException {
+      throw Exception('Sin conexión.');
+    } catch (e) {
+      final error = e.toString().toLowerCase();
+
+      if (error.contains('401') ||
+          error.contains('credenciales') ||
+          error.contains('incorrect')) {
+        throw Exception('Usuario o contraseña incorrectos.');
+      }
+
+      if (error.contains('403') ||
+          error.contains('inactive') ||
+          error.contains('inactiva')) {
+        throw Exception('Cuenta inactiva.');
+      }
+
+      rethrow;
     }
   }
 }

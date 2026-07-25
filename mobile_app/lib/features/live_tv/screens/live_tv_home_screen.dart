@@ -10,6 +10,7 @@ import '../models/live_channel.dart';
 import '../services/live_tv_service.dart';
 import 'channels_screen.dart';
 import 'player_screen.dart';
+import 'search_screen.dart';
 
 /// Pantalla principal de "TV en Vivo" (pestaña 2 de la barra inferior).
 ///
@@ -38,6 +39,7 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
   final Map<String, Future<List<LiveChannel>>> _channelsByCategory = {};
 
   String _selectedTabId = 'all';
+  bool _isNavigating = false;
 
   @override
   void initState() {
@@ -59,19 +61,33 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
     );
   }
 
-  void _openChannel(LiveChannel channel) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PlayerScreen(
-          username: widget.username,
-          password: widget.password,
-          streamId: channel.id,
-          channelName: channel.name,
-          channelIcon: channel.icon,
+  Future<void> _openChannel(LiveChannel channel) async {
+    if (_isNavigating) return;
+
+    setState(() {
+      _isNavigating = true;
+    });
+
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(
+            username: widget.username,
+            password: widget.password,
+            streamId: channel.id,
+            channelName: channel.name,
+            channelIcon: channel.icon,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isNavigating = false;
+        });
+      }
+    }
   }
 
   void _seeAll(LiveCategory category) {
@@ -232,9 +248,7 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
             final categories = snapshot.data ?? [];
             // "Los favoritos de muchos" toma la 2ª categoría disponible
             // (o la primera si solo hay una) como segunda sección.
-            final sectionCategories = categories.length > 1
-                ? [categories.first, categories[1]]
-                : categories;
+            final sectionCategories = categories;
 
             return ListView(
               padding: const EdgeInsets.only(bottom: 24),
@@ -243,6 +257,35 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
                 const SizedBox(height:16),
                 _buildTabsBar(categories),
                 const SizedBox(height: 6),
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: TextField(
+                    readOnly: true,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SearchScreen(
+                            username: widget.username,
+                            password: widget.password,
+                          ),
+                        ),
+                      );
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Buscar canal...',
+                      prefixIcon: const Icon(Icons.search),
+                      filled: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
 
                 // ----------------------------------------------------
                 // AD_SLOT_LIVE_TV — banner debajo de los filtros
