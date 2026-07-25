@@ -5,6 +5,7 @@ enviarlas al frontend (Flutter).
 El objetivo es exponer solo los campos que la app necesita y evitar
 filtrar datos sensibles (password, server_info, infraestructura interna).
 """
+from .logo_overrides import LOGO_OVERRIDES
 
 
 def _to_int(value, default=0):
@@ -60,13 +61,17 @@ def normalize_channels(raw) -> list:
     if not isinstance(raw, list):
         return []
 
-    return [
-        {
+    channels = []
+
+    for item in raw:
+        stream_id = str(item.get("stream_id"))
+
+        channels.append({
             "id": _to_int(item.get("stream_id")),
             "name": item.get("name"),
             "category_id": item.get("category_id"),
-            "icon": item.get("stream_icon"),
+            "icon": LOGO_OVERRIDES.get(stream_id) or item.get("stream_icon"),
             "stream_type": item.get("stream_type"),
-        }
-        for item in raw
-    ]
+        })
+
+    return channels
