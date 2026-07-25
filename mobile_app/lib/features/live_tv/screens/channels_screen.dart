@@ -216,6 +216,8 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                           );
 
                           // Cuando el usuario regresa, liberamos el candado
+                          await Future.delayed(const Duration(milliseconds: 300));
+
                           if (mounted) {
                             setState(() => _isNavigating = false);
                           }

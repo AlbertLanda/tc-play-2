@@ -104,6 +104,7 @@ class LiveTvService {
         'password': password,
         'stream_id': streamId.toString(),
         'device_profile': 'mobile',
+        'replace_profile': true,
       }),
     );
 

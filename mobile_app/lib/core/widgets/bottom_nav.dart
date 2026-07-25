@@ -61,7 +61,7 @@ class AppBottomNav extends StatelessWidget {
     PageRouteBuilder(
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,
-      pageBuilder: (_, __, ___) => target,
+      pageBuilder: (context, animation, secondaryAnimation) => target,
     ),
   );
 }

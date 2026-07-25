@@ -54,6 +54,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   bool _playerError = false;
   bool _isReconnecting = false;
   bool _isDisposed = false;
+  bool _isClosingPlayer = false;
   bool _isLandscape = false;
   bool _controlsVisible = true;
   bool _locked = false;
@@ -125,10 +126,21 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_isDisposed || _isClosingPlayer) return;
+
     if (state == AppLifecycleState.resumed) {
-      if (!_playerController.player.state.playing) {
+      if (!_playerError &&
+          !_isInitializingPlayer &&
+          !_playerController.player.state.playing) {
         _playerController.player.play();
       }
+      return;
+    }
+
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _playerController.player.pause();
     }
   }
 
@@ -238,11 +250,33 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   // MÉTODO PARA SALIDA LIMPIA Y SEGURA
   Future<void> _closePlayerAndExit() async {
-    await _playerController.player.stop();
+    if (_isClosingPlayer || _isDisposed) return;
+
+    _isClosingPlayer = true;
+
+    _playbackWatchdog?.cancel();
+    _reconnectDelayTimer?.cancel();
+    _hideControlsTimer?.cancel();
+
+    try {
+      await _playerController.player.pause();
+      await _playerController.player.stop();
+    } catch (e) {
+      debugPrint('Error al detener el player: $e');
+    }
+
     try {
       await _service.stopProxy(streamId: widget.streamId);
-    } catch (_) {} 
-    
+    } catch (e) {
+      debugPrint('Error al detener proxy: $e');
+    }
+
+    try {
+      await _restoreOrientation();
+    } catch (e) {
+      debugPrint('Error al restaurar orientación: $e');
+    }
+
     if (mounted) {
       Navigator.of(context).pop();
     }
@@ -537,8 +571,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     ScreenBrightness().resetApplicationScreenBrightness();
 
     _playerController.dispose();
-    _service.stopProxy(streamId: widget.streamId);
-    _restoreOrientation();
+
+    if (!_isClosingPlayer) {
+      unawaited(_service.stopProxy(streamId: widget.streamId));
+      unawaited(_restoreOrientation());
+    }
+
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

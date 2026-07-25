@@ -243,8 +243,29 @@ def live_proxy_url(request):
         # la salida: a partir de aquí TODO (espera, diagnóstico, limpieza y
         # URL) se hace sobre esta clave, nunca sobre el stream_id suelto, para
         # que el HLS de un perfil no se cruce con el de otro.
+        output_key = transcoder.build_output_key(safe_stream_id, device_profile)
+
+        replace_profile_value = request.data.get("replace_profile", False)
+        replace_profile = str(replace_profile_value).strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "si",
+            "sí",
+        )
+
+        replaced_outputs = []
+        if replace_profile:
+            replaced_outputs = transcoder.stop_outputs_for_device_profile(
+                device_profile,
+                keep_output_key=output_key,
+            )
+
         output_key, reused, mode = transcoder.start_hls_transcode(
-            source_url, safe_stream_id, device_profile=device_profile
+            source_url,
+            safe_stream_id,
+            device_profile=device_profile,
+            output_key=output_key,
         )
 
         # El transcode completo tarda más en producir el primer segmento
@@ -289,6 +310,7 @@ def live_proxy_url(request):
             "mode": mode,
             "device_profile": device_profile,
             "reused": reused,
+            "replaced_outputs": replaced_outputs,
         })
 
     except transcoder.TranscoderError as error:

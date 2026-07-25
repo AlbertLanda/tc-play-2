@@ -924,6 +924,9 @@ def start_hls_transcode(
     if is_stream_active(output_key):
         return output_key, True, None
 
+    # Antes de contar procesos, limpia referencias muertas del registry.
+    cleanup_finished_process_registry()
+
     # Límite de procesos concurrentes: si ya se alcanzó, no se lanza otro
     # para no saturar el servidor.
     max_concurrent = getattr(settings, "MAX_CONCURRENT_TRANSCODES", 5)
@@ -971,6 +974,82 @@ def count_active_processes() -> int:
     """Número de procesos FFmpeg vivos en el registro."""
     with _lock:
         return sum(1 for p in _processes.values() if p.poll() is None)
+
+def cleanup_finished_process_registry() -> list:
+    """
+    Limpia del registro en memoria los procesos FFmpeg que ya terminaron.
+
+    Esto evita que el backend conserve referencias viejas después de cambios
+    rápidos de canal o errores de FFmpeg. No borra salidas HLS; solo limpia
+    el registry de procesos muertos.
+    """
+    removed = []
+
+    with _lock:
+        snapshot = dict(_processes)
+
+    for output_key, process in snapshot.items():
+        if process.poll() is None:
+            continue
+
+        with _lock:
+            current = _processes.get(output_key)
+            if current is process and current.poll() is not None:
+                _processes.pop(output_key, None)
+                _process_started_at.pop(output_key, None)
+                _process_profile.pop(output_key, None)
+                removed.append(output_key)
+
+    if removed:
+        logger.info("cleanup_finished_process_registry removed=%s", removed)
+
+    return removed
+
+
+def stop_outputs_for_device_profile(device_profile: str, keep_output_key: str = None) -> list:
+    """
+    Detiene salidas HLS existentes para un perfil específico.
+
+    Uso principal en staging móvil: antes de abrir un nuevo canal mobile,
+    se limpian otros canales mobile anteriores para no saturar Azure con
+    procesos FFmpeg acumulados.
+    """
+    profile = normalize_device_profile(device_profile)
+    stopped = []
+    keys = set()
+
+    with _lock:
+        keys.update(_processes.keys())
+
+    hls_root = settings.HLS_ROOT
+    if hls_root.exists():
+        for folder in hls_root.iterdir():
+            if folder.is_dir():
+                keys.add(folder.name)
+
+    for output_key in sorted(keys):
+        if keep_output_key is not None and output_key == keep_output_key:
+            continue
+
+        _, output_profile = split_output_key(output_key)
+        if output_profile != profile:
+            continue
+
+        stopped_process = stop_hls_transcode(output_key)
+        removed_output = remove_hls_output(output_key)
+
+        if stopped_process or removed_output:
+            stopped.append(output_key)
+
+    if stopped:
+        logger.info(
+            "stop_outputs_for_device_profile profile=%s keep=%s stopped=%s",
+            profile,
+            keep_output_key,
+            stopped,
+        )
+
+    return stopped
 
 
 def stop_hls_transcode(output_key: str) -> bool:
