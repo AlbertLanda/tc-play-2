@@ -84,6 +84,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    _enterFullscreenLandscape();
+
     _checkFavorite();
     WakelockPlus.enable();
     _saveRecentChannel();
@@ -163,6 +165,27 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       );
     }
     if (mounted) setState(() {});
+  }
+
+  Future<void> _enterFullscreenLandscape() async {
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    if (!mounted) return;
+
+    _isLandscape = true;
+
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+
+    await SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.immersiveSticky,
+    );
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _restoreOrientation() async {

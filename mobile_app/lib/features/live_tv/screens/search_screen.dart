@@ -61,20 +61,16 @@ class _SearchScreenState extends State<SearchScreen> {
         password: widget.password,
       );
 
-      final responses = await Future.wait(
-        categories.map(
-          (category) => _service.getChannels(
-            username: widget.username,
-            password: widget.password,
-            categoryId: category.id,
-          ),
-        ),
-      );
-
       final List<LiveChannel> channels = [];
 
-      for (final list in responses) {
-        channels.addAll(list);
+      for (final category in categories) {
+        final result = await _service.getChannels(
+          username: widget.username,
+          password: widget.password,
+          categoryId: category.id,
+        );
+
+        channels.addAll(result);
       }
 
       SearchCache.categories = categories;
