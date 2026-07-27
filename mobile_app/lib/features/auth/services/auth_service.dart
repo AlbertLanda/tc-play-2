@@ -21,28 +21,36 @@ class AuthService {
         }),
       );
 
-      final Map<String, dynamic> data = jsonDecode(response.body);
+      Map<String, dynamic> data = {};
 
-      if (response.statusCode == 200) {
-        if (data['success'] == true) {
-          return true;
-        }
-
-        throw Exception(
-          data['detail'] ?? 'Usuario o contraseña incorrectos.',
-        );
+      try {
+        data = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (_) {
+        data = {};
       }
 
-      throw Exception(
-        data['detail'] ?? 'No fue posible iniciar sesión.',
-      );
-      
+      final message = data['message'] ?? data['detail'];
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return true;
+      }
+
+      if (response.statusCode == 401) {
+        throw Exception('Usuario o contraseña incorrectos.');
+      }
+
+      if (response.statusCode == 403) {
+        throw Exception('Cuenta inactiva.');
+      }
+
+      throw Exception(message ?? 'No fue posible iniciar sesión.');
     } on http.ClientException {
-      throw Exception('Sin conexión.');
+      throw Exception('Sin conexión. Verifica tu internet e inténtalo nuevamente.');
     } catch (e) {
       final error = e.toString().toLowerCase();
 
-      if (error.contains('401') ||
+      if (error.contains('usuario') ||
+          error.contains('contraseña') ||
           error.contains('credenciales') ||
           error.contains('incorrect')) {
         throw Exception('Usuario o contraseña incorrectos.');
@@ -52,6 +60,13 @@ class AuthService {
           error.contains('inactive') ||
           error.contains('inactiva')) {
         throw Exception('Cuenta inactiva.');
+      }
+
+      if (error.contains('socket') ||
+          error.contains('host') ||
+          error.contains('connection') ||
+          error.contains('network')) {
+        throw Exception('Sin conexión. Verifica tu internet e inténtalo nuevamente.');
       }
 
       rethrow;

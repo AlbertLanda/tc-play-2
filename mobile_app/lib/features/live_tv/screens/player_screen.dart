@@ -664,24 +664,25 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         ),
 
         if (_isInitializingPlayer)
-        const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(
-                color: AppColors.primary,
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Cargando canal...',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-              ),
+          const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  color: AppColors.primary,
+                ),
+                SizedBox(height: 14),
+                Text(
+                  'Cargando canal...',
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
 
         if (_playerError)
           Center(
@@ -699,17 +700,21 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                   style: TextStyle(color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  onPressed: _refresh,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reintentar'),
-                ),
-                const SizedBox(height: 12),
-
-                OutlinedButton.icon(
-                  onPressed: _closePlayerAndExit,
-                  icon: const Icon(Icons.arrow_back),
-                  label: const Text('Volver'),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _refresh,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reintentar'),
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton.icon(
+                      onPressed: _closePlayerAndExit,
+                      icon: const Icon(Icons.arrow_back),
+                      label: const Text('Volver'),
+                    ),
+                  ],
                 ),
               ],
             ),

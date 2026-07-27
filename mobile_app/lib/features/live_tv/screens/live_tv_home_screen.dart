@@ -12,12 +12,11 @@ import 'channels_screen.dart';
 import 'player_screen.dart';
 import 'search_screen.dart';
 
-/// Pantalla principal de "TV en Vivo" (pestaña 2 de la barra inferior).
+/// Pantalla principal de "TV en Vivo".
 ///
-/// Reemplaza el flujo anterior Categorías -> Canales como punto de
-/// entrada: aquí mismo se ve una vista previa del canal destacado, los
-/// filtros rápidos (Todas / categorías) y, debajo, los canales
-/// agrupados por sección — igual que en la captura de referencia.
+/// Muestra buscador, categorías y canales disponibles.
+/// No reproduce automáticamente ningún canal: el usuario debe tocar
+/// una tarjeta para abrir el reproductor.
 class LiveTvHomeScreen extends StatefulWidget {
   const LiveTvHomeScreen({
     super.key,

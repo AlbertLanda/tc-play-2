@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../constants/app_colors.dart';
-
 /// Espacio reservado para publicidad / banners patrocinados.
 class AdSlot extends StatelessWidget {
   const AdSlot({
