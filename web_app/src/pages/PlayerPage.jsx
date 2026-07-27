@@ -210,6 +210,8 @@ export function PlayerPage({
 
       destroyPlayers();
     };
+
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [session.username, session.password, channel]);
 
   useEffect(() => {
@@ -452,6 +454,8 @@ export function PlayerPage({
 
       destroyPlayers();
     };
+    
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [streamUrl, playerMode]);
 
   async function handleBack() {
