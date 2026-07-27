@@ -1,4 +1,5 @@
 import logging
+import time
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -217,7 +218,29 @@ def live_proxy_url(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # hls_profile OPCIONAL: empaquetado HLS para la prueba A/B de arranque
+    # (mobile_stable = actual, mobile_fast = arranque rápido). Default:
+    # mobile_stable, idéntico al comportamiento previo.
     try:
+        hls_profile = transcoder.normalize_hls_profile(
+            request.data.get("hls_profile")
+        )
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_hls_profile",
+                "message": "hls_profile inválido. Use 'mobile_stable' o 'mobile_fast'."
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        # Medición de tiempos del arranque (plan 5.1): cada etapa se registra
+        # en ms para localizar el cuello de botella (Xtream, ffprobe, FFmpeg
+        # o el ready check). Solo métricas; nunca credenciales ni URLs.
+        request_started = time.monotonic()
+
         # URL original de Xtream (entrada para FFmpeg). Se usa el formato TS
         # crudo del canal en vivo; no se expone en la respuesta.
         client = XtreamClient()
@@ -227,6 +250,7 @@ def live_proxy_url(request):
             stream_id=safe_stream_id,
             output="ts",
         )
+        xtream_source_ms = round((time.monotonic() - request_started) * 1000)
 
         # Si XTREAM_BASE_URL no está configurado, la URL saldría incompleta
         # (sin http://host) y FFmpeg fallaría más adelante. Se corta aquí con
@@ -256,25 +280,43 @@ def live_proxy_url(request):
 
         replaced_outputs = []
         if replace_profile:
+            # remove_async=True: el FFmpeg viejo se detiene YA (libera CPU y
+            # evita audio duplicado); el borrado de su carpeta HLS se hace en
+            # segundo plano para no retrasar el arranque del canal nuevo.
             replaced_outputs = transcoder.stop_outputs_for_device_profile(
                 device_profile,
                 keep_output_key=output_key,
+                remove_async=True,
             )
 
+        start_metrics = {}
         output_key, reused, mode = transcoder.start_hls_transcode(
             source_url,
             safe_stream_id,
             device_profile=device_profile,
             output_key=output_key,
+            hls_profile=hls_profile,
+            metrics=start_metrics,
         )
 
         # El transcode completo tarda más en producir el primer segmento
         # (libx264 llena su buffer); se le da más margen que a un remux para
-        # no fallar por timeout.
+        # no fallar por timeout. min_segments lo decide el hls_profile:
+        # mobile_fast devuelve la URL con 1 solo segmento en disco.
         ready_timeout = 40 if mode == "transcode" else 15
-        if not reused and not transcoder.wait_for_hls_ready(
-            output_key, timeout_seconds=ready_timeout
-        ):
+        min_segments = transcoder.hls_profile_min_segments(hls_profile)
+        wait_metrics = {
+            "ready": True, "index_ms": None, "first_segment_ms": None,
+            "ready_ms": None, "segments": None,
+        }
+        if not reused:
+            wait_metrics = transcoder.wait_for_hls_ready_metrics(
+                output_key,
+                timeout_seconds=ready_timeout,
+                min_segments=min_segments,
+            )
+
+        if not wait_metrics["ready"]:
             # Se captura el diagnóstico ANTES de limpiar, para explicar por qué
             # no quedó listo (faltó index, segmentos, proceso vivo o dañado).
             hls_status = transcoder.get_hls_status(output_key)
@@ -292,15 +334,49 @@ def live_proxy_url(request):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # Log técnico seguro: refleja si el HLS se reutilizó o se (re)generó.
-        # No expone usuario, contraseña ni la URL original del stream.
+        ready_total_ms = round((time.monotonic() - request_started) * 1000)
+        segments = wait_metrics["segments"]
+        if segments is None:
+            segments = transcoder.count_ts_segments(output_key)
+
+        timings = {
+            "xtream_source_ms": xtream_source_ms,
+            "probe_ms": start_metrics.get("probe_ms"),
+            "ffmpeg_start_ms": start_metrics.get("ffmpeg_spawn_ms"),
+            "index_ms": wait_metrics.get("index_ms"),
+            "first_segment_ms": wait_metrics["first_segment_ms"],
+            "ready_total_ms": ready_total_ms,
+        }
+
+        # Solo se acumulan arranques reales: una reutilización no dice nada
+        # sobre cuánto cuesta levantar el canal desde cero.
+        if not reused:
+            transcoder.record_start_timing(
+                safe_stream_id, device_profile, hls_profile, mode, timings
+            )
+
+        # Log técnico seguro con el desglose de tiempos del plan (sección 6).
+        # Cada campo corresponde a una etapa del arranque, para ubicar dónde
+        # está el cuello de botella. No expone usuario, contraseña ni la URL
+        # original del stream.
         logger.info(
-            "proxy_url stream_id=%s reason=%s hls_reused=%s mode=%s device_profile=%s",
+            "proxy_url stream_id=%s profile=%s hls_profile=%s mode=%s "
+            "xtream_source_ms=%s probe_ms=%s ffmpeg_start_ms=%s index_ms=%s "
+            "first_segment_ms=%s ready_total_ms=%s segments=%s reused=%s "
+            "replaced_outputs=%s",
             safe_stream_id,
-            "reused_live_hls" if reused else "regenerated_hls",
-            reused,
-            mode,
             device_profile,
+            hls_profile,
+            mode,
+            timings["xtream_source_ms"],
+            timings["probe_ms"],
+            timings["ffmpeg_start_ms"],
+            timings["index_ms"],
+            timings["first_segment_ms"],
+            timings["ready_total_ms"],
+            segments,
+            reused,
+            replaced_outputs,
         )
 
         return Response({
@@ -309,8 +385,11 @@ def live_proxy_url(request):
             "hls_url": transcoder.build_hls_url(request, output_key),
             "mode": mode,
             "device_profile": device_profile,
+            "hls_profile": hls_profile,
             "reused": reused,
             "replaced_outputs": replaced_outputs,
+            "segments": segments,
+            "timings": timings,
         })
 
     except transcoder.TranscoderError as error:
@@ -416,6 +495,9 @@ def live_proxy_status(request):
         return Response({
             "success": True,
             **transcoder_status,
+            # Tiempos promedio por canal (plan 5.6): permite comparar canales
+            # rápidos contra lentos sin releer los logs a mano.
+            "channel_timings": transcoder.get_timing_summary(),
         })
 
     except Exception:
@@ -584,3 +666,203 @@ def live_diagnose_stream(request):
     except Exception as error:
         payload, http_status = build_error_response(error)
         return Response(payload, status=http_status)
+
+
+@api_view(["POST"])
+def live_benchmark_stream(request):
+    """
+    Benchmark de arranque de UN canal sin depender de la app (plan 5.2).
+
+    Ejecuta el flujo completo de proxy-url midiendo cada etapa desde CERO
+    (si había una salida previa del canal, se limpia antes, para que el
+    resultado refleje un arranque frío real) y devuelve:
+
+        source_ok, ffmpeg_started, first_segment_seconds, ready_seconds,
+        segments, mode, device_profile, hls_profile.
+
+    Parámetros opcionales:
+        - device_profile: mobile (default) / tv / web.
+        - hls_profile: mobile_stable (default) / mobile_fast, para la
+          comparación A/B de arranque.
+        - keep_output: por defecto false; el benchmark detiene FFmpeg y borra
+          la salida al terminar para no dejar procesos consumiendo CPU.
+
+    Sirve para comparar canales rápidos vs lentos y stable vs fast. Nunca
+    devuelve la URL original ni credenciales.
+    """
+    username = request.data.get("username")
+    password = request.data.get("password")
+    stream_id = request.data.get("stream_id")
+
+    if not username or not password or not stream_id:
+        return Response(
+            {
+                "success": False,
+                "error_code": "validation_error",
+                "message": "Usuario, contraseña y stream_id son obligatorios.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        safe_stream_id = transcoder.sanitize_stream_id(stream_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_stream_id",
+                "message": "El stream_id enviado no es válido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        device_profile = transcoder.normalize_device_profile(
+            request.data.get("device_profile")
+        )
+        hls_profile = transcoder.normalize_hls_profile(
+            request.data.get("hls_profile")
+        )
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_profile",
+                "message": "device_profile u hls_profile inválido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    keep_output = str(request.data.get("keep_output", "")).strip().lower() in (
+        "1", "true", "yes", "si", "sí",
+    )
+
+    if not transcoder.is_ffmpeg_available():
+        return Response(
+            {
+                "success": False,
+                "error_code": "ffmpeg_not_available",
+                "message": "FFmpeg no está disponible.",
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    output_key = transcoder.build_output_key(safe_stream_id, device_profile)
+    result = {
+        "success": True,
+        "stream_id": safe_stream_id,
+        "device_profile": device_profile,
+        "hls_profile": hls_profile,
+        "source_ok": False,
+        "ffmpeg_started": False,
+        "index_seconds": None,
+        "first_segment_seconds": None,
+        "ready_seconds": None,
+        "segments": 0,
+        "mode": None,
+        "probe_seconds": None,
+    }
+
+    try:
+        benchmark_started = time.monotonic()
+
+        client = XtreamClient()
+        source_url = client.build_live_stream_url(
+            username=username,
+            password=password,
+            stream_id=safe_stream_id,
+            output="ts",
+        )
+        if not source_url.lower().startswith(("http://", "https://")):
+            return Response({**result, "success": False,
+                             "error_code": "stream_url_error"},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        result["source_ok"] = True
+
+        # Arranque FRÍO: si quedó una salida previa (de la app o de otro
+        # benchmark), se limpia para que los tiempos no midan reutilización.
+        transcoder.stop_hls_transcode(output_key)
+        transcoder.remove_hls_output(output_key)
+
+        start_metrics = {}
+        output_key, reused, mode = transcoder.start_hls_transcode(
+            source_url,
+            safe_stream_id,
+            device_profile=device_profile,
+            output_key=output_key,
+            hls_profile=hls_profile,
+            metrics=start_metrics,
+        )
+        result["ffmpeg_started"] = True
+        result["mode"] = mode
+        probe_ms = start_metrics.get("probe_ms")
+        result["probe_seconds"] = (
+            round(probe_ms / 1000, 2) if probe_ms is not None else None
+        )
+
+        ready_timeout = 40 if mode == "transcode" else 15
+        wait_metrics = transcoder.wait_for_hls_ready_metrics(
+            output_key,
+            timeout_seconds=ready_timeout,
+            min_segments=transcoder.hls_profile_min_segments(hls_profile),
+        )
+
+        result["segments"] = wait_metrics["segments"]
+        if wait_metrics.get("index_ms") is not None:
+            result["index_seconds"] = round(wait_metrics["index_ms"] / 1000, 2)
+        if wait_metrics["first_segment_ms"] is not None:
+            result["first_segment_seconds"] = round(
+                wait_metrics["first_segment_ms"] / 1000, 2
+            )
+        if wait_metrics["ready"]:
+            result["ready_seconds"] = round(
+                (time.monotonic() - benchmark_started), 2
+            )
+            transcoder.record_start_timing(
+                safe_stream_id, device_profile, hls_profile, mode,
+                {
+                    "probe_ms": start_metrics.get("probe_ms"),
+                    "index_ms": wait_metrics.get("index_ms"),
+                    "first_segment_ms": wait_metrics.get("first_segment_ms"),
+                    "ready_total_ms": round(result["ready_seconds"] * 1000),
+                },
+            )
+        else:
+            result["success"] = False
+            result["error_code"] = "hls_not_ready"
+
+        logger.info(
+            "benchmark stream_id=%s profile=%s hls_profile=%s mode=%s "
+            "source_ok=%s ffmpeg_started=%s probe_seconds=%s index_seconds=%s "
+            "first_segment_seconds=%s ready_seconds=%s segments=%s",
+            safe_stream_id,
+            device_profile,
+            hls_profile,
+            mode,
+            result["source_ok"],
+            result["ffmpeg_started"],
+            result["probe_seconds"],
+            result["index_seconds"],
+            result["first_segment_seconds"],
+            result["ready_seconds"],
+            result["segments"],
+        )
+
+        return Response(result)
+
+    except transcoder.TranscoderError as error:
+        return Response(
+            {**result, "success": False, "error_code": error.error_code},
+            status=error.http_status,
+        )
+
+    except Exception as error:
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
+
+    finally:
+        # El benchmark no debe dejar procesos vivos salvo que se pida
+        # explícitamente conservar la salida (keep_output=true).
+        if not keep_output:
+            transcoder.stop_hls_transcode(output_key)
+            transcoder.remove_hls_output(output_key)

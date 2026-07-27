@@ -195,7 +195,13 @@ class LiveProxyUrlTests(APITestCase):
         )
         self.assertEqual(response.data["error_code"], "ffmpeg_not_available")
 
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 900,
+            "ready_ms": 2000, "segments": 3,
+        },
+    )
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_proxy_exitoso(self, mock_start, mock_wait):
         """Éxito -> 200 con hls_url y el modo elegido (remux/transcode)."""
@@ -210,7 +216,13 @@ class LiveProxyUrlTests(APITestCase):
         self.assertEqual(response.data["mode"], "transcode")
         self.assertFalse(response.data["reused"])
 
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 900,
+            "ready_ms": 2000, "segments": 3,
+        },
+    )
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_device_profile_default_mobile(self, mock_start, mock_wait):
         """Sin device_profile -> se usa 'mobile' y se refleja en la respuesta."""
@@ -225,7 +237,13 @@ class LiveProxyUrlTests(APITestCase):
             mock_start.call_args.kwargs.get("device_profile"), "mobile"
         )
 
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 900,
+            "ready_ms": 2000, "segments": 3,
+        },
+    )
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_device_profile_tv(self, mock_start, mock_wait):
         """device_profile='tv' -> se propaga al transcoder y a la respuesta."""
@@ -253,7 +271,13 @@ class LiveProxyUrlTests(APITestCase):
         )
         mock_start.assert_not_called()
 
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 900,
+            "ready_ms": 2000, "segments": 3,
+        },
+    )
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_no_filtra_credenciales(self, mock_start, mock_wait):
         """La respuesta no debe contener la contraseña ni la URL original."""
@@ -345,7 +369,13 @@ class LiveProxyUrlTests(APITestCase):
     @patch("xtream.views.transcoder.remove_hls_output")
     @patch("xtream.views.transcoder.stop_hls_transcode")
     @patch("xtream.views.transcoder.get_hls_status")
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=False)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": False, "first_segment_ms": None,
+            "ready_ms": None, "segments": 0,
+        },
+    )
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_hls_no_listo_limpia_y_devuelve_diagnostico(
         self, mock_start, mock_wait, mock_status, mock_stop, mock_remove
@@ -1331,7 +1361,13 @@ class LiveProxyUrlRecoveryEndpointTests(APITestCase):
         transcoder._processes.clear()
         self.addCleanup(transcoder._processes.clear)
 
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 900,
+            "ready_ms": 2000, "segments": 3,
+        },
+    )
     @patch("xtream.services.transcoder.ensure_cleanup_thread")
     @patch("xtream.services.transcoder.subprocess.Popen")
     @patch("xtream.services.transcoder.decide_mode", return_value="transcode")
@@ -1668,7 +1704,13 @@ class ProxyUrlPerfilesEndpointTests(APITestCase):
             "stream_id": "123",
         }
 
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 900,
+            "ready_ms": 2000, "segments": 3,
+        },
+    )
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_tres_perfiles_devuelven_tres_urls_distintas(
         self, mock_start, _mock_wait
@@ -1688,7 +1730,13 @@ class ProxyUrlPerfilesEndpointTests(APITestCase):
 
         self.assertEqual(len(set(urls.values())), 3, f"URLs cruzadas: {urls}")
 
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 900,
+            "ready_ms": 2000, "segments": 3,
+        },
+    )
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_sin_device_profile_la_url_es_la_de_mobile(
         self, mock_start, _mock_wait
@@ -1702,7 +1750,13 @@ class ProxyUrlPerfilesEndpointTests(APITestCase):
         self.assertEqual(response.data["device_profile"], "mobile")
         self.assertIn("hls/123-mobile/index.m3u8", response.data["hls_url"])
 
-    @patch("xtream.views.transcoder.wait_for_hls_ready", return_value=True)
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 900,
+            "ready_ms": 2000, "segments": 3,
+        },
+    )
     @patch("xtream.views.transcoder.start_hls_transcode")
     def test_reused_true_con_el_mismo_perfil(self, mock_start, _mock_wait):
         """El contrato conserva reused para el mismo canal + mismo perfil."""
@@ -1777,3 +1831,298 @@ class HlsStatusEndpointPerfilTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["error_code"], "invalid_device_profile")
+
+
+class HlsProfileTests(SimpleTestCase):
+    """
+    Perfiles de empaquetado HLS (plan 5.4): mobile_stable (actual) vs
+    mobile_fast (arranque rápido) y su efecto en el comando FFmpeg.
+    """
+
+    def test_normaliza_default_a_mobile_stable(self):
+        """Sin hls_profile -> mobile_stable (comportamiento previo intacto)."""
+        self.assertEqual(transcoder.normalize_hls_profile(None), "mobile_stable")
+        self.assertEqual(transcoder.normalize_hls_profile(""), "mobile_stable")
+        self.assertEqual(
+            transcoder.normalize_hls_profile("  MOBILE_FAST "), "mobile_fast"
+        )
+
+    def test_perfil_invalido_lanza_valueerror(self):
+        with self.assertRaises(ValueError):
+            transcoder.normalize_hls_profile("turbo")
+
+    def test_min_segments_por_perfil(self):
+        self.assertEqual(transcoder.hls_profile_min_segments("mobile_stable"), 2)
+        self.assertEqual(transcoder.hls_profile_min_segments("mobile_fast"), 1)
+
+    def test_comando_stable_conserva_flags_actuales(self):
+        """mobile_stable (y el default) generan hls_time=2 / list_size=8."""
+        cmd = transcoder._build_ffmpeg_command("http://x", "out.m3u8", "remux")
+        self.assertIn("2", cmd[cmd.index("-hls_time") + 1])
+        self.assertEqual(cmd[cmd.index("-hls_list_size") + 1], "8")
+
+    def test_comando_fast_usa_segmentos_cortos(self):
+        """mobile_fast genera hls_time=1 / list_size=6."""
+        cmd = transcoder._build_ffmpeg_command(
+            "http://x", "out.m3u8", "remux", hls_profile="mobile_fast"
+        )
+        self.assertEqual(cmd[cmd.index("-hls_time") + 1], "1")
+        self.assertEqual(cmd[cmd.index("-hls_list_size") + 1], "6")
+
+
+class ProxyUrlHlsProfileEndpointTests(APITestCase):
+    """POST /proxy-url/ acepta hls_profile y lo propaga al transcoder."""
+
+    def setUp(self):
+        self.url = reverse("live_proxy_url")
+        self.payload = {
+            "username": "cliente.demo",
+            "password": "cualquiera",
+            "stream_id": "123",
+        }
+
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 700,
+            "ready_ms": 1500, "segments": 2,
+        },
+    )
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_hls_profile_se_propaga_y_refleja(self, mock_start, _mock_wait):
+        mock_start.return_value = ("123-mobile", False, "transcode")
+        payload = dict(self.payload, hls_profile="mobile_fast")
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["hls_profile"], "mobile_fast")
+        self.assertEqual(
+            mock_start.call_args.kwargs.get("hls_profile"), "mobile_fast"
+        )
+        # La respuesta expone los tiempos medidos (plan 5.1).
+        self.assertIn("timings", response.data)
+        self.assertEqual(response.data["timings"]["first_segment_ms"], 700)
+
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    def test_hls_profile_invalido_devuelve_400(self, mock_start):
+        payload = dict(self.payload, hls_profile="turbo")
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "invalid_hls_profile")
+        mock_start.assert_not_called()
+
+
+class BenchmarkEndpointTests(APITestCase):
+    """POST /live/benchmark/ (plan 5.2): validaciones y contrato base."""
+
+    def setUp(self):
+        self.url = reverse("live_benchmark_stream")
+        self.payload = {
+            "username": "cliente.demo",
+            "password": "cualquiera",
+            "stream_id": "123",
+        }
+
+    def test_sin_credenciales_devuelve_400(self):
+        response = self.client.post(self.url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "validation_error")
+
+    def test_stream_id_invalido_devuelve_400(self):
+        payload = dict(self.payload, stream_id="../etc")
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error_code"], "invalid_stream_id")
+
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=False)
+    def test_sin_ffmpeg_devuelve_503(self, _mock_ffmpeg):
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(
+            response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        self.assertEqual(response.data["error_code"], "ffmpeg_not_available")
+
+    @patch("xtream.views.transcoder.remove_hls_output")
+    @patch("xtream.views.transcoder.stop_hls_transcode")
+    @patch(
+        "xtream.views.transcoder.wait_for_hls_ready_metrics",
+        return_value={
+            "ready": True, "first_segment_ms": 1200,
+            "ready_ms": 2600, "segments": 3,
+        },
+    )
+    @patch("xtream.views.transcoder.start_hls_transcode")
+    @patch("xtream.views.transcoder.is_ffmpeg_available", return_value=True)
+    @patch("xtream.views.XtreamClient")
+    def test_benchmark_exitoso_devuelve_metricas_y_limpia(
+        self, mock_client, _mock_ffmpeg, mock_start, _mock_wait,
+        mock_stop, mock_remove,
+    ):
+        mock_client.return_value.build_live_stream_url.return_value = (
+            "http://servidor/live/cliente.demo/cualquiera/123.ts"
+        )
+        mock_start.return_value = ("123-mobile", False, "transcode")
+
+        response = self.client.post(self.url, self.payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        self.assertTrue(response.data["source_ok"])
+        self.assertTrue(response.data["ffmpeg_started"])
+        self.assertEqual(response.data["mode"], "transcode")
+        self.assertEqual(response.data["device_profile"], "mobile")
+        self.assertEqual(response.data["hls_profile"], "mobile_stable")
+        self.assertEqual(response.data["first_segment_seconds"], 1.2)
+        self.assertIsNotNone(response.data["ready_seconds"])
+        self.assertEqual(response.data["segments"], 3)
+        # Sin keep_output, el benchmark no deja procesos ni salidas vivas.
+        mock_stop.assert_called_with("123-mobile")
+        mock_remove.assert_called_with("123-mobile")
+
+    def test_no_filtra_credenciales(self):
+        """La respuesta del benchmark nunca incluye password ni URL original."""
+        with patch("xtream.views.transcoder.is_ffmpeg_available", return_value=False):
+            response = self.client.post(self.url, self.payload, format="json")
+        self.assertNotIn("cualquiera", str(response.data))
+
+
+class MedicionTiemposArranqueTests(SimpleTestCase):
+    """
+    wait_for_hls_ready_metrics() (plan 5.1): mide por separado la creación del
+    index.m3u8 y la aparición del primer segmento .ts, que es lo que permite
+    saber si el cuello de botella está en abrir el origen o en codificar.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        transcoder._processes.clear()
+        self.addCleanup(transcoder._processes.clear)
+
+    def test_mide_index_primer_segmento_y_total(self):
+        """Salida ya lista -> index_ms, first_segment_ms y ready_ms medidos."""
+        _montar_salida_hls(self.tmp, "700-mobile", segmentos=3, edad_index=0)
+
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=30):
+            metricas = transcoder.wait_for_hls_ready_metrics(
+                "700-mobile", timeout_seconds=5, min_segments=2
+            )
+
+        self.assertTrue(metricas["ready"])
+        self.assertEqual(metricas["segments"], 3)
+        for campo in ("index_ms", "first_segment_ms", "ready_ms"):
+            self.assertIsNotNone(metricas[campo], f"{campo} no se midió")
+            self.assertGreaterEqual(metricas[campo], 0)
+
+    def test_sin_salida_devuelve_no_listo_y_etapas_en_none(self):
+        """
+        Si FFmpeg nunca produjo nada, las etapas quedan en None: el log muestra
+        dónde se cortó el arranque en vez de inventar un tiempo.
+        """
+        with override_settings(HLS_ROOT=self.tmp, HLS_ACTIVE_TTL_SECONDS=30):
+            metricas = transcoder.wait_for_hls_ready_metrics(
+                "701-mobile", timeout_seconds=1, min_segments=2
+            )
+
+        self.assertFalse(metricas["ready"])
+        self.assertIsNone(metricas["index_ms"])
+        self.assertIsNone(metricas["first_segment_ms"])
+        self.assertIsNone(metricas["ready_ms"])
+        self.assertEqual(metricas["segments"], 0)
+
+
+class TiemposPorCanalTests(SimpleTestCase):
+    """
+    Acumulado de tiempos por canal (plan 5.6): promedios y peor caso para
+    comparar canales rápidos contra lentos sin releer los logs.
+    """
+
+    def setUp(self):
+        transcoder.reset_timing_samples()
+        self.addCleanup(transcoder.reset_timing_samples)
+
+    def test_promedia_las_muestras_del_canal(self):
+        for ready in (2000, 4000):
+            transcoder.record_start_timing(
+                "57", "mobile", "mobile_stable", "transcode",
+                {"probe_ms": 100, "index_ms": 500,
+                 "first_segment_ms": 1000, "ready_total_ms": ready},
+            )
+
+        resumen = transcoder.get_timing_summary()
+
+        self.assertEqual(len(resumen), 1)
+        canal = resumen[0]
+        self.assertEqual(canal["output_key"], "57-mobile")
+        self.assertEqual(canal["stream_id"], "57")
+        self.assertEqual(canal["samples"], 2)
+        self.assertEqual(canal["avg_ready_total_ms"], 3000)
+        self.assertEqual(canal["worst_ready_total_ms"], 4000)
+        self.assertEqual(canal["last_mode"], "transcode")
+
+    def test_ignora_etapas_no_medidas(self):
+        """Una etapa en None no debe arrastrar el promedio a cero."""
+        transcoder.record_start_timing(
+            "71", "mobile", "mobile_fast", "remux",
+            {"probe_ms": None, "index_ms": 200,
+             "first_segment_ms": None, "ready_total_ms": 900},
+        )
+
+        canal = transcoder.get_timing_summary()[0]
+
+        self.assertIsNone(canal["avg_probe_ms"])
+        self.assertIsNone(canal["avg_first_segment_ms"])
+        self.assertEqual(canal["avg_index_ms"], 200)
+
+    def test_separa_canales_y_perfiles(self):
+        transcoder.record_start_timing(
+            "57", "mobile", "mobile_stable", "transcode", {"ready_total_ms": 1000})
+        transcoder.record_start_timing(
+            "57", "tv", "mobile_stable", "remux", {"ready_total_ms": 2000})
+
+        claves = {c["output_key"] for c in transcoder.get_timing_summary()}
+
+        self.assertEqual(claves, {"57-mobile", "57-tv"})
+
+    def test_conserva_solo_las_ultimas_muestras(self):
+        """Ventana deslizante: el registro no crece sin límite."""
+        with override_settings(TIMING_SAMPLES_PER_CHANNEL=3):
+            for ready in (1000, 2000, 3000, 4000, 5000):
+                transcoder.record_start_timing(
+                    "88", "mobile", "mobile_stable", "remux",
+                    {"ready_total_ms": ready},
+                )
+
+            canal = transcoder.get_timing_summary()[0]
+
+        self.assertEqual(canal["samples"], 3)
+        self.assertEqual(canal["avg_ready_total_ms"], 4000)  # 3000,4000,5000
+
+
+class ProxyStatusTiemposTests(APITestCase):
+    """GET /proxy-status/ expone los tiempos promedio por canal."""
+
+    def setUp(self):
+        transcoder.reset_timing_samples()
+        self.addCleanup(transcoder.reset_timing_samples)
+
+    def test_incluye_channel_timings(self):
+        transcoder.record_start_timing(
+            "57", "mobile", "mobile_stable", "transcode",
+            {"ready_total_ms": 4100, "first_segment_ms": 2800},
+        )
+
+        response = self.client.get(reverse("live_proxy_status"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("channel_timings", response.data)
+        canal = response.data["channel_timings"][0]
+        self.assertEqual(canal["stream_id"], "57")
+        self.assertEqual(canal["avg_ready_total_ms"], 4100)

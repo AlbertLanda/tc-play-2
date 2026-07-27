@@ -102,6 +102,42 @@ DEVICE_PROFILES = {
 DEFAULT_DEVICE_PROFILE = "mobile"
 
 
+# --- Perfiles de empaquetado HLS (hls_profile) -----------------------------
+# Independientes del device_profile: controlan CÓMO se corta el HLS, no cómo
+# se codifica el video. Sirven para la prueba A/B de arranque del plan:
+#   - mobile_stable: comportamiento actual (segmentos de 2s, lista de 8,
+#     exige 2 segmentos antes de devolver hls_url). Prioriza estabilidad.
+#   - mobile_fast: segmentos de 1s, lista de 6, devuelve hls_url con 1 solo
+#     segmento. Prioriza velocidad de arranque; NO dejar en producción si
+#     genera pausas constantes.
+HLS_PROFILES = {
+    "mobile_stable": {"hls_time": "2", "hls_list_size": "8", "min_segments": 2},
+    "mobile_fast": {"hls_time": "1", "hls_list_size": "6", "min_segments": 1},
+}
+
+DEFAULT_HLS_PROFILE = "mobile_stable"
+
+
+def normalize_hls_profile(value) -> str:
+    """
+    Normaliza el hls_profile recibido a uno válido. None o cadena vacía caen
+    al default (mobile_stable), igual que normalize_device_profile, para que
+    los clientes actuales sigan funcionando sin enviar el parámetro.
+    """
+    if value is None or str(value).strip() == "":
+        return DEFAULT_HLS_PROFILE
+    profile = str(value).strip().lower()
+    if profile not in HLS_PROFILES:
+        raise ValueError(f"hls_profile inválido: {value}")
+    return profile
+
+
+def hls_profile_min_segments(hls_profile) -> int:
+    """Segmentos mínimos que exige el ready check para este perfil HLS."""
+    profile = normalize_hls_profile(hls_profile)
+    return HLS_PROFILES[profile]["min_segments"]
+
+
 def normalize_device_profile(value) -> str:
     """
     Normaliza el device_profile recibido a uno válido.
@@ -334,6 +370,66 @@ def wait_for_hls_ready(
         time.sleep(0.5)
 
     return False
+
+def wait_for_hls_ready_metrics(
+    output_key: str, timeout_seconds: int = 15, min_segments: int = 2
+) -> dict:
+    """
+    Igual que wait_for_hls_ready(), pero además mide los tiempos del arranque
+    para la instrumentación del plan. Devuelve un dict con:
+
+        - ready:            True si la salida quedó reproducible a tiempo.
+        - index_ms:         ms hasta que apareció el index.m3u8, o None.
+        - first_segment_ms: ms hasta observar el PRIMER segmento .ts, o None
+                            si nunca apareció.
+        - ready_ms:         ms hasta que el ready check pasó, o None.
+        - segments:         segmentos .ts en disco al terminar la espera.
+
+    Separar index_ms de first_segment_ms es lo que permite ubicar el cuello de
+    botella: si el index tarda, el problema es que FFmpeg no logra abrir el
+    origen (Xtream/red); si el index sale rápido pero el primer .ts tarda, el
+    costo está en la codificación.
+
+    Misma salida anticipada que wait_for_hls_ready: si el proceso FFmpeg
+    murió y la salida no está lista, no se sigue esperando en vano.
+    """
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    index = _index_path(output_key)
+    index_ms = None
+    first_segment_ms = None
+
+    def _elapsed_ms():
+        return round((time.monotonic() - started) * 1000)
+
+    def _result(ready: bool) -> dict:
+        return {
+            "ready": ready,
+            "index_ms": index_ms,
+            "first_segment_ms": first_segment_ms,
+            "ready_ms": _elapsed_ms() if ready else None,
+            "segments": count_ts_segments(output_key),
+        }
+
+    while time.monotonic() < deadline:
+        if index_ms is None and index.exists() and index.stat().st_size > 0:
+            index_ms = _elapsed_ms()
+
+        if first_segment_ms is None and count_ts_segments(output_key) >= 1:
+            first_segment_ms = _elapsed_ms()
+
+        if _hls_is_ready(output_key, min_segments):
+            return _result(True)
+
+        with _lock:
+            process = _processes.get(output_key)
+        if process is not None and process.poll() is not None:
+            return _result(_hls_is_ready(output_key, min_segments))
+
+        time.sleep(0.25)
+
+    return _result(False)
+
 
 def build_hls_url(request, output_key: str) -> str:
     """
@@ -670,6 +766,43 @@ def _parse_fps(rate) -> float:
         return None
 
 
+# --- Caché de sondeos ffprobe ----------------------------------------------
+# ffprobe sobre el stream original puede tardar varios segundos (hasta 20s de
+# timeout) y es una de las etapas más caras del arranque. Los códecs de un
+# canal no cambian entre un zapping y otro, así que se cachea el resultado por
+# stream_id durante PROBE_CACHE_TTL_SECONDS: el segundo arranque del mismo
+# canal se salta el sondeo completo. La clave es el stream_id (no la URL, que
+# lleva credenciales y no debe vivir en estructuras de larga duración).
+_probe_cache = {}
+
+
+def _get_cached_probe(cache_key):
+    if cache_key is None:
+        return None
+    ttl = getattr(settings, "PROBE_CACHE_TTL_SECONDS", 300)
+    with _lock:
+        entry = _probe_cache.get(cache_key)
+    if entry is None:
+        return None
+    cached_at, info = entry
+    if time.time() - cached_at > ttl:
+        with _lock:
+            _probe_cache.pop(cache_key, None)
+        return None
+    return info
+
+
+def _store_cached_probe(cache_key, info) -> None:
+    if cache_key is None:
+        return
+    # Un sondeo fallido (todo None) no se cachea: pudo ser un problema
+    # transitorio de red y cachearlo condenaría al canal a transcode.
+    if all(value is None for value in info.values()):
+        return
+    with _lock:
+        _probe_cache[cache_key] = (time.time(), info)
+
+
 def probe_stream_info(stream_url: str) -> dict:
     """
     Sondea con ffprobe el stream ORIGINAL y devuelve un dict con:
@@ -760,7 +893,10 @@ def mode_from_codecs(video_codec, audio_codec) -> str:
     return "transcode_audio"
 
 
-def decide_mode(stream_url: str, device_profile: str = DEFAULT_DEVICE_PROFILE) -> str:
+def decide_mode(
+    stream_url: str, device_profile: str = DEFAULT_DEVICE_PROFILE,
+    cache_key=None,
+) -> str:
     """
     Sondea el stream original y decide cómo procesarlo, gastando la menor CPU
     posible. Si no se puede determinar el códec, transcodifica por seguridad.
@@ -776,8 +912,15 @@ def decide_mode(stream_url: str, device_profile: str = DEFAULT_DEVICE_PROFILE) -
     Perfil web: normalize_fps=False -> respeta el fps original (el navegador/PC
     decodifica 60fps sin problema), así que solo remux/transcode_audio según
     el códec, sin forzar transcode por framerate.
+
+    cache_key (opcional, típicamente el stream_id): reutiliza el sondeo
+    ffprobe cacheado durante PROBE_CACHE_TTL_SECONDS. Acelera el segundo
+    arranque del mismo canal, que se salta el ffprobe completo.
     """
-    info = probe_stream_info(stream_url)
+    info = _get_cached_probe(cache_key)
+    if info is None:
+        info = probe_stream_info(stream_url)
+        _store_cached_probe(cache_key, info)
     mode = mode_from_codecs(info["video_codec"], info["audio_codec"])
 
     profile = DEVICE_PROFILES.get(device_profile, DEVICE_PROFILES[DEFAULT_DEVICE_PROFILE])
@@ -798,6 +941,7 @@ def decide_mode(stream_url: str, device_profile: str = DEFAULT_DEVICE_PROFILE) -
 def _build_ffmpeg_command(
     stream_url: str, output_path, mode: str,
     device_profile: str = DEFAULT_DEVICE_PROFILE,
+    hls_profile: str = DEFAULT_HLS_PROFILE,
 ) -> list:
     """
     Construye el comando FFmpeg según el modo elegido y empaqueta en HLS con
@@ -876,10 +1020,14 @@ def _build_ffmpeg_command(
     output_path = Path(output_path).resolve()
     segment_pattern = output_path.parent / "segment_%03d.ts"
 
+    # El empaquetado HLS lo decide el hls_profile (A/B stable vs fast); el
+    # default reproduce el comportamiento previo (2s x 8 segmentos).
+    packaging = HLS_PROFILES[normalize_hls_profile(hls_profile)]
+
     command += [
         "-f", "hls",
-        "-hls_time", "2",
-        "-hls_list_size", "8",
+        "-hls_time", packaging["hls_time"],
+        "-hls_list_size", packaging["hls_list_size"],
         "-hls_flags", "delete_segments+append_list+omit_endlist",
         "-hls_segment_filename", str(segment_pattern),
         str(output_path),
@@ -891,6 +1039,8 @@ def start_hls_transcode(
     stream_url: str, stream_id: str, forced_mode: str = None,
     device_profile: str = DEFAULT_DEVICE_PROFILE,
     output_key: str = None,
+    hls_profile: str = None,
+    metrics: dict = None,
 ):
     """
     Lanza (o reutiliza) un proceso FFmpeg que genera la salida HLS para el
@@ -909,14 +1059,24 @@ def start_hls_transcode(
     identidad de almacenamiento del preset de FFmpeg, pero no debe usarse en
     endpoints que permiten seleccionar varios perfiles.
 
+    hls_profile (opcional): perfil de empaquetado HLS (mobile_stable /
+    mobile_fast) para la prueba A/B de arranque. None cae al default.
+
+    metrics (opcional): dict del llamador donde se registran los tiempos de
+    cada etapa en ms (probe_ms, ffmpeg_spawn_ms) para la medición del plan.
+
     Lanza FFmpegNotAvailableError / HlsOutputError / TranscoderStartError
     según el punto de falla, y ValueError si stream_id o device_profile no
     son válidos.
     """
+    if metrics is None:
+        metrics = {}
+
     if not is_ffmpeg_available():
         raise FFmpegNotAvailableError("FFmpeg no está disponible.")
 
     device_profile = normalize_device_profile(device_profile)
+    hls_profile = normalize_hls_profile(hls_profile)
     if output_key is None:
         output_key = build_output_key(stream_id, device_profile)
     else:
@@ -946,12 +1106,19 @@ def start_hls_transcode(
 
     # ffprobe decide: remux si el códec ya es compatible con web, transcode
     # si no (y según el perfil, se normaliza fps). Así solo se gasta CPU
-    # cuando realmente hace falta.
-    mode = forced_mode or decide_mode(stream_url, device_profile)
+    # cuando realmente hace falta. El sondeo se cachea por stream_id para
+    # que el zapping de vuelta al mismo canal se salte el ffprobe.
+    probe_started = time.monotonic()
+    mode = forced_mode or decide_mode(
+        stream_url, device_profile, cache_key=sanitize_stream_id(stream_id)
+    )
+    metrics["probe_ms"] = round((time.monotonic() - probe_started) * 1000)
+
     command = _build_ffmpeg_command(
-        stream_url, _index_path(output_key), mode, device_profile
+        stream_url, _index_path(output_key), mode, device_profile, hls_profile
     )
 
+    spawn_started = time.monotonic()
     try:
         process = subprocess.Popen(
             command,
@@ -960,6 +1127,7 @@ def start_hls_transcode(
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise TranscoderStartError("No se pudo iniciar FFmpeg.") from error
+    metrics["ffmpeg_spawn_ms"] = round((time.monotonic() - spawn_started) * 1000)
 
     with _lock:
         _processes[output_key] = process
@@ -976,6 +1144,90 @@ def count_active_processes() -> int:
     """Número de procesos FFmpeg vivos en el registro."""
     with _lock:
         return sum(1 for p in _processes.values() if p.poll() is None)
+
+
+# --- Tiempos de arranque acumulados por canal (plan 5.6) -------------------
+# Registro en memoria de las últimas mediciones de arranque de cada salida,
+# para responder "cuánto tarda en promedio este canal" sin tener que leer los
+# logs a mano. Igual que _processes, vive en el proceso de Django y se pierde
+# al reiniciar: es material de diagnóstico, no una métrica persistente.
+_timing_samples = {}
+
+
+def record_start_timing(
+    stream_id, device_profile, hls_profile, mode, timings: dict
+) -> None:
+    """
+    Guarda una muestra de tiempos de arranque para un canal.
+
+    Solo debe llamarse en arranques REALES (no en reutilizaciones), para que
+    los promedios reflejen lo que tarda levantar el canal desde cero.
+    """
+    key = build_output_key(stream_id, device_profile)
+    max_samples = getattr(settings, "TIMING_SAMPLES_PER_CHANNEL", 20)
+
+    sample = dict(timings)
+    sample["mode"] = mode
+    sample["hls_profile"] = hls_profile
+
+    with _lock:
+        samples = _timing_samples.setdefault(key, [])
+        samples.append(sample)
+        # Ventana deslizante: solo se conservan las últimas N muestras.
+        del samples[:-max_samples]
+
+
+def _average(samples, field):
+    """Promedio de un campo ignorando las muestras donde no se pudo medir."""
+    values = [s.get(field) for s in samples if s.get(field) is not None]
+    if not values:
+        return None
+    return round(sum(values) / len(values))
+
+
+def get_timing_summary() -> list:
+    """
+    Resumen de tiempos por canal para el endpoint de monitoreo: cuántos
+    arranques se midieron, el promedio de cada etapa y el peor caso.
+
+    Sirve para comparar canales rápidos contra lentos sin releer los logs.
+    No expone credenciales ni URLs de origen.
+    """
+    with _lock:
+        snapshot = {key: list(samples) for key, samples in _timing_samples.items()}
+
+    summary = []
+    for key, samples in sorted(snapshot.items()):
+        if not samples:
+            continue
+
+        stream_id, device_profile = split_output_key(key)
+        ready_values = [
+            s["ready_total_ms"] for s in samples
+            if s.get("ready_total_ms") is not None
+        ]
+
+        summary.append({
+            "output_key": key,
+            "stream_id": stream_id,
+            "device_profile": device_profile,
+            "samples": len(samples),
+            "last_mode": samples[-1].get("mode"),
+            "last_hls_profile": samples[-1].get("hls_profile"),
+            "avg_probe_ms": _average(samples, "probe_ms"),
+            "avg_index_ms": _average(samples, "index_ms"),
+            "avg_first_segment_ms": _average(samples, "first_segment_ms"),
+            "avg_ready_total_ms": _average(samples, "ready_total_ms"),
+            "worst_ready_total_ms": max(ready_values) if ready_values else None,
+        })
+
+    return summary
+
+
+def reset_timing_samples() -> None:
+    """Vacía las muestras acumuladas (útil entre tandas de pruebas)."""
+    with _lock:
+        _timing_samples.clear()
 
 def cleanup_finished_process_registry() -> list:
     """
@@ -1008,16 +1260,26 @@ def cleanup_finished_process_registry() -> list:
     return removed
 
 
-def stop_outputs_for_device_profile(device_profile: str, keep_output_key: str = None) -> list:
+def stop_outputs_for_device_profile(
+    device_profile: str, keep_output_key: str = None, remove_async: bool = False
+) -> list:
     """
     Detiene salidas HLS existentes para un perfil específico.
 
     Uso principal en staging móvil: antes de abrir un nuevo canal mobile,
     se limpian otros canales mobile anteriores para no saturar Azure con
     procesos FFmpeg acumulados.
+
+    remove_async=True: el proceso FFmpeg se detiene SIEMPRE en el momento
+    (eso es lo urgente al cambiar de canal: liberar CPU y evitar audio
+    duplicado), pero el borrado de la carpeta HLS vieja se hace en un hilo
+    aparte para no retrasar la respuesta del canal nuevo. Las carpetas son
+    distintas por (stream_id, perfil), así que borrar la vieja en paralelo
+    no toca la salida nueva.
     """
     profile = normalize_device_profile(device_profile)
     stopped = []
+    to_remove = []
     keys = set()
 
     with _lock:
@@ -1038,10 +1300,24 @@ def stop_outputs_for_device_profile(device_profile: str, keep_output_key: str = 
             continue
 
         stopped_process = stop_hls_transcode(output_key)
-        removed_output = remove_hls_output(output_key)
+
+        if remove_async:
+            had_output = _hls_dir(output_key).exists()
+            if had_output:
+                to_remove.append(output_key)
+            removed_output = had_output
+        else:
+            removed_output = remove_hls_output(output_key)
 
         if stopped_process or removed_output:
             stopped.append(output_key)
+
+    if to_remove:
+        threading.Thread(
+            target=lambda keys=to_remove: [remove_hls_output(k) for k in keys],
+            daemon=True,
+            name="hls-remove-replaced",
+        ).start()
 
     if stopped:
         logger.info(

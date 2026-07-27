@@ -9,6 +9,7 @@ from .views import (
     live_proxy_status,
     live_diagnose_stream,
     live_hls_status,
+    live_benchmark_stream,
 )
 
 urlpatterns = [
@@ -21,4 +22,5 @@ urlpatterns = [
     path("live/proxy-status/", live_proxy_status, name="live_proxy_status"),
     path("live/diagnose-stream/", live_diagnose_stream, name="live_diagnose_stream"),
     path("live/hls-status/<str:stream_id>/", live_hls_status, name="live_hls_status"),
+    path("live/benchmark/", live_benchmark_stream, name="live_benchmark_stream"),
 ]

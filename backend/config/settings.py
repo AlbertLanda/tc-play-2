@@ -197,6 +197,58 @@ HLS_CLEANUP_TTL_SECONDS = config("HLS_CLEANUP_TTL_SECONDS", default=300, cast=in
 # Cada cuánto corre el hilo de limpieza en segundo plano.
 HLS_CLEANUP_INTERVAL_SECONDS = config("HLS_CLEANUP_INTERVAL_SECONDS", default=60, cast=int)
 
+# Cuánto se reutiliza el sondeo ffprobe de un canal antes de volver a
+# ejecutarlo. Los códecs de un canal no cambian entre un zapping y otro, así
+# que cachearlos evita pagar el ffprobe completo (la etapa más lenta del
+# arranque) al volver a un canal recién visto.
+PROBE_CACHE_TTL_SECONDS = config("PROBE_CACHE_TTL_SECONDS", default=300, cast=int)
+
+# --- Logging ---
+# Sin este bloque, los logger.info() de las apps propias (xtream.*) caen en el
+# handler de último recurso de Python, que solo deja pasar WARNING o superior:
+# las métricas de arranque HLS quedarían silenciadas aunque el código las
+# registre. Se configura consola para todo el paquete xtream y, si se define
+# HLS_LOG_FILE, también un archivo (útil para guardar la evidencia de las
+# pruebas canal por canal).
+XTREAM_LOG_LEVEL = config("XTREAM_LOG_LEVEL", default="INFO")
+HLS_LOG_FILE = config("HLS_LOG_FILE", default="")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "hls": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "datefmt": "%H:%M:%S",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "hls",
+        },
+    },
+    "loggers": {
+        # "xtream" cubre por jerarquía a xtream.views y a
+        # xtream.services.transcoder, que son los que emiten las métricas.
+        "xtream": {
+            "handlers": ["console"],
+            "level": XTREAM_LOG_LEVEL,
+            "propagate": False,
+        },
+    },
+}
+
+if HLS_LOG_FILE:
+    LOGGING["handlers"]["file"] = {
+        "class": "logging.FileHandler",
+        "filename": HLS_LOG_FILE,
+        "encoding": "utf-8",
+        "formatter": "hls",
+    }
+    LOGGING["loggers"]["xtream"]["handlers"].append("file")
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
