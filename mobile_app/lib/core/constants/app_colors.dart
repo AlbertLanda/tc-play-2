@@ -70,7 +70,7 @@ class AppColors {
 
   /// Usado en "Suscríbete", la etiqueta "EN VIVO" y la barra de
   /// progreso del reproductor. Rojo desaturado, no neón.
-  static const Color liveRed = Color(0xFFB23A4A);
+  static const Color liveRed = Color(0xFF2962FF);
 
   /// Dorado sobrio para favoritos / destacados, en vez del ámbar puro.
   static const Color favoriteGold = Color(0xFFC9A24B);

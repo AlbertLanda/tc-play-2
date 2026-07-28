@@ -528,7 +528,33 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       if (!mounted) return;
       setState(() => _isFavorite = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Canal eliminado de favoritos')),
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.black.withValues(alpha: 0.75),
+          elevation: 0,
+          margin: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          duration: const Duration(seconds: 2),
+          content: const Row(
+            children: [
+              Icon(
+                Icons.heart_broken_rounded,
+                color: Colors.white70,
+                size: 20,
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Canal eliminado de favoritos',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     } else {
       await _favoriteService.saveChannel(
@@ -542,7 +568,33 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       if (!mounted) return;
       setState(() => _isFavorite = true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Canal agregado a favoritos')),
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.black.withValues(alpha: 0.75),
+          elevation: 0,
+          margin: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          duration: const Duration(seconds: 2),
+          content: const Row(
+            children: [
+              Icon(
+                Icons.favorite_rounded,
+                color: Colors.redAccent,
+                size: 20,
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Canal agregado a favoritos',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
   }
@@ -777,8 +829,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             IconButton(
               onPressed: _toggleFavorite,
               icon: Icon(
-                _isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
-                color: AppColors.favoriteGold, size: 22,
+                _isFavorite
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                color: Colors.redAccent,
+                size: 22,
               ),
             ),
             IconButton(

@@ -163,14 +163,40 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    color: AppColors.primary,
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'Cargando canales...',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }
 
         final channels = (snapshot.data ?? []).take(8).toList();
 
-        if (channels.isEmpty) return const SizedBox.shrink();
+        if (channels.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Center(
+              child: Text(
+                'No hay canales disponibles en esta categoría.',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+          );
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -225,7 +251,22 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(
-                child: CircularProgressIndicator(color: AppColors.primary),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(
+                      color: AppColors.primary,
+                    ),
+                    SizedBox(height:20),
+                    Text(
+                      'Preparando TV en vivo...',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
               );
             }
 
@@ -253,9 +294,9 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
               padding: const EdgeInsets.only(bottom: 24),
               children: [
 
-                const SizedBox(height:16),
+                const SizedBox(height:20),
                 _buildTabsBar(categories),
-                const SizedBox(height: 6),
+                const SizedBox(height: 14),
 
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -273,11 +314,22 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
                       );
                     },
                     decoration: InputDecoration(
-                      hintText: 'Buscar canal...',
-                      prefixIcon: const Icon(Icons.search),
+                      hintText: 'Buscar canales...',
+                      hintStyle: const TextStyle(
+                        color: AppColors.textSecondary,
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.search_rounded,
+                      ),
+                      suffixIcon: const Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        size: 18,
+                        color: AppColors.textSecondary,
+                      ),
                       filled: true,
+                      fillColor: AppColors.card,
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                         borderSide: BorderSide.none,
                       ),
                     ),

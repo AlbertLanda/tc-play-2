@@ -19,6 +19,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  final FocusNode _passwordFocusNode = FocusNode();
+
   final AuthService _authService = AuthService();
 
   bool _isLoading = false;
@@ -29,6 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
+    _passwordFocusNode.dispose();
     super.dispose();
   }
 
@@ -48,7 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
-          content: const Text('Ingrese su usuario y contraseña.'),
+          content: const Text('Por favor, ingresa tu usuario y contraseña para continuar.'),
         ),
       );
       return;
@@ -80,6 +83,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (!mounted) return;
 
+      final errorMessage = e.toString().replaceFirst('Exception: ', '');
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
@@ -87,7 +92,13 @@ class _LoginScreenState extends State<LoginScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(
+            errorMessage.toLowerCase().contains('usuario') ||
+                    errorMessage.toLowerCase().contains('contraseña') ||
+                    errorMessage.toLowerCase().contains('credenciales')
+                ? 'Usuario o contraseña incorrectos. Verifica tus datos e inténtalo nuevamente.'
+                : errorMessage,
+          ),
         ),
       );
     } finally {
@@ -147,14 +158,28 @@ class _LoginScreenState extends State<LoginScreen> {
   // Texto "TC PLAY 2.0" — Manrope sólido, sin degradado ni resplandor
   // ---------------------------------------------------------------------
   Widget _buildBrandmark() {
-    return Text(
-      'TC PLAY 2.0',
-      style: GoogleFonts.manrope(
-        color: AppColors.textPrimary,
-        fontSize: 14,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 3,
-      ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'TC PLAY 2.0',
+          style: GoogleFonts.manrope(
+            color: AppColors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 3,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Tu entretenimiento, siempre contigo.',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.manrope(
+            color: AppColors.textSecondary,
+            fontSize: 12,
+          ),
+        ),
+      ],
     );
   }
 
@@ -186,20 +211,47 @@ class _LoginScreenState extends State<LoginScreen> {
         children: [
           Center(child: AppLogo(size: 84)),
 
-          const SizedBox(height: 32),
+          const SizedBox(height: 24),
 
           Text(
-            'USUARIO',
+            'Bienvenido a TC Play',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.manrope(
+              color: AppColors.textPrimary,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          Text(
+            'Inicia sesión para disfrutar de televisión en vivo y contenido exclusivo.',
+            textAlign: TextAlign.center,
             style: GoogleFonts.manrope(
               color: AppColors.textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.4,
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+
+          const SizedBox(height: 28),
+
+          Text(
+            'Usuario',
+            style: GoogleFonts.manrope(
+              color: AppColors.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _usernameController,
+            textInputAction: TextInputAction.next,
+            onSubmitted: (_) {
+              FocusScope.of(context).requestFocus(_passwordFocusNode);
+            },
             style: GoogleFonts.manrope(color: Colors.white, fontSize: 15),
             decoration: _fieldDecoration(
               hint: 'Tu usuario',
@@ -210,17 +262,19 @@ class _LoginScreenState extends State<LoginScreen> {
           const SizedBox(height: 18),
 
           Text(
-            'CONTRASEÑA',
+            'Contraseña',
             style: GoogleFonts.manrope(
-              color: AppColors.textSecondary,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.4,
+              color: AppColors.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _passwordController,
+            focusNode: _passwordFocusNode,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _login(),
             obscureText: _obscurePassword,
             style: GoogleFonts.manrope(color: Colors.white, fontSize: 15),
             decoration: _fieldDecoration(
@@ -305,6 +359,19 @@ class _LoginScreenState extends State<LoginScreen> {
             onPressed: _login,
           ),
 
+          if (_isLoading) ...[
+            const SizedBox(height: 16),
+            Center(
+              child: Text(
+                'Iniciando sesión...',
+                style: GoogleFonts.manrope(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+
           const SizedBox(height: 30),
 
           Center(child: _buildBrandmark()),
@@ -317,6 +384,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      resizeToAvoidBottomInset: false,
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -354,15 +422,31 @@ class _LoginScreenState extends State<LoginScreen> {
                     ? 420.0
                     : constraints.maxWidth * 0.9;
 
-                return Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(vertical: 40),
-                    child: _buildFormCard(cardWidth),
+                return AnimatedPadding(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOut,
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).viewInsets.bottom,
                   ),
-                );
-              },
-            ),
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 40,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: Center(
+                      child: _buildFormCard(cardWidth),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
+        ),
         ],
       ),
     );

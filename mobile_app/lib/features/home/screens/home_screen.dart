@@ -7,7 +7,6 @@ import '../../live_tv/services/favorite_channel_service.dart';
 import '../../live_tv/screens/search_screen.dart';
 import '../../live_tv/screens/player_screen.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/ad_slot.dart';
 import '../../../core/widgets/bottom_nav.dart';
 import '../../../core/widgets/section_header.dart';
@@ -18,6 +17,7 @@ import '../widgets/home_menu_card.dart';
 import '../widgets/media_card_row.dart';
 import '../widgets/promo_carousel.dart';
 import '../../live_tv/models/live_channel.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -141,32 +141,56 @@ void _reloadFavorites() {
   // ---------------------------------------------------------------------
   // Top bar: logo + notificaciones + búsqueda + cuenta
   // ---------------------------------------------------------------------
-  Widget _buildTopBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
-      child: Row(
-        children: [
-          AppTheme.brandmark(fontSize: 15, letterSpacing: 3),
-          const Spacer(),
-          IconButton(
-            onPressed: _comingSoon,
-            icon: const Icon(Icons.notifications_none_rounded,
-                color: AppColors.textPrimary),
+ Widget _buildTopBar() {
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
+    child: Row(
+      children: [
+        Image.asset(
+          'assets/images/tc_play_logo.png',
+          height: 34,
+          fit: BoxFit.contain,
+        ),
+
+        const SizedBox(width: 10),
+
+        Text(
+          'TC PLAY',
+          style: GoogleFonts.sora(
+            color: AppColors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
           ),
-          IconButton(
-            onPressed: _openSearch,
-            icon:
-                const Icon(Icons.search_rounded, color: AppColors.textPrimary),
+        ),
+        const Spacer(),
+
+        IconButton(
+          onPressed: _comingSoon,
+          icon: const Icon(
+            Icons.notifications_none_rounded,
+            color: AppColors.textPrimary,
           ),
-          IconButton(
-            onPressed: _goToAccount,
-            icon: const Icon(Icons.person_outline_rounded,
-                color: AppColors.textPrimary),
+        ),
+
+        IconButton(
+          onPressed: _openSearch,
+          icon: const Icon(
+            Icons.search_rounded,
+            color: AppColors.textPrimary,
           ),
-        ],
-      ),
-    );
-  }
+        ),
+
+        IconButton(
+          onPressed: _goToAccount,
+          icon: const Icon(
+            Icons.person_outline_rounded,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   // ---------------------------------------------------------------------
   // Continuar viendo (placeholder — conectar a "historial" cuando el
@@ -178,13 +202,34 @@ void _reloadFavorites() {
     builder: (context, snapshot) {
       if (!snapshot.hasData || snapshot.data!.isEmpty) {
         return const SizedBox(
-          height: 70,
+          height: 110,
           child: Center(
-            child: Text(
-              'Aún no has visto ningún canal.',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.live_tv_outlined,
+                  size: 34,
+                  color: AppColors.textSecondary,
+                ),
+                SizedBox(height: 10),
+                Text(
+                  'Aún no has visto ningún canal.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Empieza a ver TV en vivo y aparecerá aquí.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -233,8 +278,21 @@ void _reloadFavorites() {
         return const SizedBox(
           height: 120,
           child: Center(
-            child: CircularProgressIndicator(
-              color: AppColors.primary,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  color: AppColors.primary,
+                ),
+                SizedBox(height: 14),
+                Text(
+                  'Cargando canales...',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -257,7 +315,7 @@ void _reloadFavorites() {
       final channels = snapshot.data!;
 
       return SizedBox(
-        height: 120,
+        height: 155,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -267,7 +325,7 @@ void _reloadFavorites() {
             final channel = channels[index];
 
             return SizedBox(
-              width: 95,
+              width: 110,
               child: LogoTile(
                 title: channel.name,
                 subtitle: 'EN VIVO',
@@ -310,8 +368,21 @@ void _reloadFavorites() {
         return const SizedBox(
           height: 120,
           child: Center(
-            child: CircularProgressIndicator(
-              color: AppColors.primary,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(
+                  color: AppColors.primary,
+                ),
+                SizedBox(height: 14),
+                Text(
+                  'Cargando canales...',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -321,20 +392,41 @@ void _reloadFavorites() {
 
       if (favorites.isEmpty) {
         return const SizedBox(
-          height: 80,
+          height: 120,
           child: Center(
-            child: Text(
-              'Aún no tienes canales favoritos.',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.favorite_border_rounded,
+                  size: 34,
+                  color: AppColors.textSecondary,
+                ),
+                SizedBox(height: 10),
+                Text(
+                  'Aún no tienes canales favoritos.',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Toca el corazón de un canal para guardarlo aquí.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
           ),
         );
       }
 
       return SizedBox(
-        height: 120,
+        height: 155,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -344,7 +436,7 @@ void _reloadFavorites() {
             final channel = favorites[index];
 
             return SizedBox(
-              width: 95,
+              width: 110,
               child: LogoTile(
                 title: channel.name,
                 subtitle: 'FAVORITO',

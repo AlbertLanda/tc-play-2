@@ -195,16 +195,38 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
 
                 prefixIcon: const Icon(
-                  Icons.search,
+                  Icons.search_rounded,
                   color: Colors.white,
                 ),
 
                 filled: true,
-
                 fillColor: AppColors.surface,
 
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 20,
+                ),
+
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(30),
+                  borderSide: BorderSide.none,
+                ),
+
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30),
+                  borderSide: BorderSide.none,
+                ),
+
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30),
+                  borderSide: BorderSide(
+                    color: AppColors.primary,
+                    width: 1.3,
+                  ),
+                ),
+
+                disabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(30),
                   borderSide: BorderSide.none,
                 ),
               ),
@@ -214,9 +236,24 @@ class _SearchScreenState extends State<SearchScreen> {
 
 
             if (_loading)
-              const CircularProgressIndicator(
-                color: AppColors.primary,
+            const Padding(
+              padding: EdgeInsets.only(top: 30),
+              child: Column(
+                children: [
+                  CircularProgressIndicator(
+                    color: AppColors.primary,
+                  ),
+                  SizedBox(height: 14),
+                  Text(
+                    'Buscando canales...',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ),
+            ),
 
 
             Expanded(
@@ -319,16 +356,35 @@ class _SearchScreenState extends State<SearchScreen> {
                       _controller.text.trim().isNotEmpty)
 
                     const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(30),
-                        child: Text(
-                          'No encontramos canales con ese nombre.',
-                          style: TextStyle(
-                            color: Colors.white54,
+                            child: Padding(
+                              padding: EdgeInsets.all(30),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.search_off_rounded,
+                                    color: AppColors.textSecondary,
+                                    size: 48,
+                                  ),
+                                  SizedBox(height: 14),
+                                  Text(
+                                    'No encontramos resultados.',
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                SizedBox(height: 6),
+                                Text(
+                                  'Prueba escribiendo otro nombre de canal.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ),
-                    ),
+                        )
 
                 ],
               ),
