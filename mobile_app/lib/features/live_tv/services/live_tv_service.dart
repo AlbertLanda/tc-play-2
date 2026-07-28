@@ -104,6 +104,7 @@ class LiveTvService {
         'password': password,
         'stream_id': streamId.toString(),
         'device_profile': 'mobile',
+        'hls_profile': 'mobile_fast',
         'replace_profile': true,
       }),
     );
@@ -126,6 +127,7 @@ class LiveTvService {
       body: jsonEncode({
         'stream_id': streamId.toString(),
         'device_profile': 'mobile',
+        'hls_profile': 'mobile_fast',
       }),
     );
   }
