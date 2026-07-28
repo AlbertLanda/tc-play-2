@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getAstraChannels } from '../api/astraApi';
 
-export function AstraChannelsPage({ onBack, onSelectChannel }) {
-  const [channels, setChannels] = useState([]);
+export function AstraChannelsPage({
+  channels: initialChannels = [],
+  onBack,
+  onSelectChannel,
+}) {
+  const [channels, setChannels] = useState(initialChannels);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -15,15 +19,21 @@ export function AstraChannelsPage({ onBack, onSelectChannel }) {
       const data = await getAstraChannels();
       setChannels(data);
     } catch (error) {
-      setErrorMessage(error.message || 'Error al cargar canales de Astra.');
+      setErrorMessage(error.message || 'Error al cargar canales de TV en vivo.');
     } finally {
       setIsLoading(false);
     }
   }
 
   useEffect(() => {
+    if (initialChannels.length > 0) {
+      setChannels(initialChannels);
+      return;
+    }
+
     loadChannels();
-  }, []);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialChannels]);
 
   const filteredChannels = useMemo(() => {
     const value = searchTerm.trim().toLowerCase();
@@ -43,10 +53,10 @@ export function AstraChannelsPage({ onBack, onSelectChannel }) {
         </button>
 
         <div>
-          <p className="eyebrow">Fuente Astra</p>
-          <h1>Canales HLS</h1>
+          <p className="eyebrow">TC Play 2.0</p>
+          <h1>TV en vivo</h1>
           <p className="muted-text">
-            Lista obtenida desde el backend Django para evitar consumir la IP directamente desde React.
+            Elige un canal para iniciar la reproducción.
           </p>
         </div>
       </section>
@@ -55,7 +65,7 @@ export function AstraChannelsPage({ onBack, onSelectChannel }) {
         <div className="search-box">
           <input
             type="text"
-            placeholder="Buscar canal Astra..."
+            placeholder="Buscar canal..."
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
           />
@@ -70,13 +80,13 @@ export function AstraChannelsPage({ onBack, onSelectChannel }) {
         {isLoading && (
           <div className="state-card">
             <h2>Cargando canales...</h2>
-            <p>Consultando playlist de Astra.</p>
+            <p>Preparando la lista de TV en vivo.</p>
           </div>
         )}
 
         {errorMessage && (
           <div className="state-card">
-            <h2>Error al cargar Astra</h2>
+            <h2>No se pudieron cargar los canales</h2>
             <p>{errorMessage}</p>
             <button type="button" onClick={loadChannels}>
               Reintentar
@@ -87,7 +97,7 @@ export function AstraChannelsPage({ onBack, onSelectChannel }) {
         {!isLoading && !errorMessage && filteredChannels.length === 0 && (
           <div className="state-card">
             <h2>Sin resultados</h2>
-            <p>No se encontraron canales con ese nombre.</p>
+            <p>No encontramos canales con ese nombre.</p>
           </div>
         )}
 
@@ -101,8 +111,11 @@ export function AstraChannelsPage({ onBack, onSelectChannel }) {
                 onClick={() => onSelectChannel(channel)}
               >
                 <div className="channel-logo">
-                  {channel.logo ? (
-                    <img src={channel.logo} alt={channel.name} />
+                  {channel.logo || channel.icon ? (
+                    <img
+                      src={channel.logo || channel.icon}
+                      alt={channel.name}
+                    />
                   ) : (
                     <span>📺</span>
                   )}
@@ -110,8 +123,7 @@ export function AstraChannelsPage({ onBack, onSelectChannel }) {
 
                 <div>
                   <h3>{channel.name}</h3>
-                  <p>ID: {channel.id}</p>
-                  <p>Fuente: {channel.source}</p>
+                  <p>EN VIVO</p>
                 </div>
               </button>
             ))}

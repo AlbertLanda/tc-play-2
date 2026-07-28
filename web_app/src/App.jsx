@@ -73,18 +73,10 @@ function App() {
         return;
       }
 
-      const randomIndex = Math.floor(Math.random() * channels.length);
-      const randomChannel = channels[randomIndex];
-
       setAstraChannels(channels);
-      setSelectedChannelIndex(randomIndex);
-      setSelectedChannel({
-        ...randomChannel,
-        isAstra: true,
-        stream_url: randomChannel.url,
-      });
-
-      setRoute(ROUTES.player);
+      setSelectedChannelIndex(0);
+      setSelectedChannel(null);
+      setRoute(ROUTES.astraChannels);
     } catch (error) {
       setHomeErrorMessage(
         error.message || 'No se pudo abrir TV en vivo. Intenta nuevamente.',
@@ -141,6 +133,7 @@ function App() {
   if (route === ROUTES.astraChannels && session) {
     return (
       <AstraChannelsPage
+        channels={astraChannels}
         onBack={() => setRoute(ROUTES.home)}
         onSelectChannel={handleSelectAstraChannel}
       />
