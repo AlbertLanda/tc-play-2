@@ -338,13 +338,20 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           );
           urlObtained = true; 
         } catch (e) {
-          if (e.toString().toLowerCase().contains('transcoder')) {
+          final errorText = e.toString().toLowerCase();
+
+          if (
+            errorText.contains('transcoder') ||
+            errorText.contains('segmentos hls') ||
+            errorText.contains('hls_not_ready') ||
+            errorText.contains('no generó segmentos')
+          ) {
             retries++;
-            debugPrint("⚠️ TRANSCODER OCUPADO. Reintento $retries de $_maxReconnectAttempts...");
+            debugPrint("⚠️ HLS aún no listo. Reintento $retries de $_maxReconnectAttempts...");
             if (retries >= _maxReconnectAttempts) rethrow;
             await Future.delayed(const Duration(seconds: 2));
           } else {
-            rethrow; 
+            rethrow;
           }
         }
       }
@@ -390,6 +397,13 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _reconnectAttempts++;
     _playbackWatchdog?.cancel();
 
+    if (mounted) {
+      setState(() {
+        _isInitializingPlayer = true;
+        _playerError = false;
+      });
+    }
+
     try {
       await _playerController.player.stop();
       
@@ -414,9 +428,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           );
           urlObtained = true;
         } catch (e) {
-          if (e.toString().toLowerCase().contains('transcoder')) {
+          final errorText = e.toString().toLowerCase();
+
+          if (
+            errorText.contains('transcoder') ||
+            errorText.contains('segmentos hls') ||
+            errorText.contains('hls_not_ready') ||
+            errorText.contains('no generó segmentos')
+          ) {
             retries++;
-            debugPrint("⚠️ RECONEXIÓN: TRANSCODER OCUPADO. Reintento $retries...");
+            debugPrint("⚠️ RECONEXIÓN: HLS aún no listo. Reintento $retries...");
             if (retries >= _maxReconnectAttempts) rethrow;
             await Future.delayed(const Duration(seconds: 2));
           } else {
@@ -435,7 +456,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
       _reconnectAttempts = 0;
       _startPlaybackWatchdog();
-      if (mounted) setState(() => _playerError = false);
+      if (mounted) {
+        setState(() {
+          _isInitializingPlayer = false;
+          _playerError = false;
+        });
+      }
     } catch (e) {
       debugPrint('AUTOMATIC RECONNECT ERROR: $e');
       _handleReconnectFailure();
