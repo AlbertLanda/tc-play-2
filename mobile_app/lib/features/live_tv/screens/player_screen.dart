@@ -305,6 +305,33 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
   }
 
+  Future<String> _getPlaybackUrl({required bool preferDirect}) async {
+    if (preferDirect) {
+      try {
+        final directUrl = await _service.getStreamUrl(
+          username: widget.username,
+          password: widget.password,
+          streamId: widget.streamId,
+          output: 'ts',
+        );
+
+        debugPrint('✅ DIRECT STREAM URL OBTENIDA');
+        return directUrl;
+      } catch (e) {
+        debugPrint('⚠️ No se pudo obtener stream directo. Usando proxy HLS: $e');
+      }
+    }
+
+    final proxyUrl = await _service.getProxyStreamUrl(
+      username: widget.username,
+      password: widget.password,
+      streamId: widget.streamId,
+    );
+
+    debugPrint('✅ PROXY HLS URL OBTENIDA');
+    return proxyUrl;
+  }
+
   // EL CARGADOR DEFINITIVO CON REINTENTOS
   // EL CARGADOR CORREGIDO
   Future<void> _loadInitialPlayer() async {
@@ -331,11 +358,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       // 2. Bucle de persistencia
       while (!urlObtained && retries < _maxReconnectAttempts) {
         try {
-          streamUrl = await _service.getProxyStreamUrl(
-            username: widget.username,
-            password: widget.password,
-            streamId: widget.streamId, // Ahora sí pedimos el canal sin haberlo matado
-          );
+          streamUrl = await _getPlaybackUrl(preferDirect: true);
           urlObtained = true; 
         } catch (e) {
           final errorText = e.toString().toLowerCase();
@@ -356,7 +379,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         }
       }
 
-      debugPrint("✅ STREAM URL OBTENIDA: $streamUrl");
+      debugPrint("✅ STREAM URL OBTENIDA");
       if (!mounted || _isDisposed) return;
 
       await _playerController.initializePlayer(streamUrl);
@@ -421,11 +444,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
       while (!urlObtained && retries < _maxReconnectAttempts) {
         try {
-          newStreamUrl = await _service.getProxyStreamUrl(
-            username: widget.username,
-            password: widget.password,
-            streamId: widget.streamId,
-          );
+          newStreamUrl = await _getPlaybackUrl(preferDirect: false);
           urlObtained = true;
         } catch (e) {
           final errorText = e.toString().toLowerCase();
