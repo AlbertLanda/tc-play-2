@@ -29,15 +29,15 @@ class LogoTile extends StatelessWidget {
 
     return Material(
       color: AppColors.card,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(22),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
             color: AppColors.card,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(22),
             border: Border.all(
               color: tileColor.withValues(alpha: .12),
               width: 1,
@@ -45,8 +45,9 @@ class LogoTile extends StatelessWidget {
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: .18),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+                blurRadius: 12,
+                spreadRadius: 0,
+                offset: const Offset(0, 5),
               ),
             ],
           ),
@@ -55,20 +56,20 @@ class LogoTile extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               SizedBox(
-                height: 60,
+                height: 76,
                 child: imageUrl != null && imageUrl!.isNotEmpty
                     ? Container(
-                        height: 60,
-                        width: 60,
-                        padding: const EdgeInsets.all(8),
+                        height: 76,
+                        width: 76,
+                        padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(18),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: .15),
-                              blurRadius: 6,
-                              offset: const Offset(0, 3),
+                              color: Colors.black.withValues(alpha: .10),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
                             ),
                           ],
                         ),
@@ -85,8 +86,8 @@ class LogoTile extends StatelessWidget {
                         ),
                       )
                     : Container(
-                        width: 54,
-                        height: 54,
+                        width: 62,
+                        height: 62,
                         decoration: BoxDecoration(
                           color: tileColor.withValues(alpha: .12),
                           shape: BoxShape.circle,
@@ -99,19 +100,36 @@ class LogoTile extends StatelessWidget {
                       ),
               ),
 
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
 
-              Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 11.5,
-                  height: 1.2,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF22C55E), // Verde
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        height: 1.15,
+                      ),
+                    ),
+                  ),
+                ],
               ),
 
               if (subtitle != null) ...[

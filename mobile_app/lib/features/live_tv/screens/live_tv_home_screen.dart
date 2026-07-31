@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../core/widgets/ad_slot.dart';
 import '../../../core/widgets/bottom_nav.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../home/widgets/home_menu_card.dart';
@@ -113,7 +112,7 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
     ];
 
     return SizedBox(
-      height: 42,
+      height: 46,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -128,12 +127,14 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: selected ? AppColors.liveRed : AppColors.card,
-                borderRadius: BorderRadius.circular(20),
+                color: selected
+                    ? AppColors.primary
+                    : AppColors.card,
+                borderRadius: BorderRadius.circular(24),
                 border: Border.all(
                   color: selected
-                      ? AppColors.liveRed
-                      : AppColors.textSecondary.withValues(alpha: .25),
+                      ? AppColors.primary
+                      : Colors.white.withValues(alpha: .08),
                 ),
               ),
               alignment: Alignment.center,
@@ -141,8 +142,8 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
                 tab.label,
                 style: TextStyle(
                   color: selected ? Colors.white : AppColors.textSecondary,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
                 ),
               ),
             ),
@@ -213,9 +214,9 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
                 itemCount: channels.length,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 0.95,
+                  mainAxisSpacing: 18,
+                  crossAxisSpacing: 18,
+                  childAspectRatio: .82,
                 ),
                 itemBuilder: (context, index) {
                   final channel = channels[index];
@@ -295,53 +296,72 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
               children: [
 
                 const SizedBox(height:20),
-                _buildTabsBar(categories),
-                const SizedBox(height: 14),
-
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: TextField(
-                    readOnly: true,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => SearchScreen(
-                            username: widget.username,
-                            password: widget.password,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: SizedBox(
+                    height: 56,
+                    child: TextField(
+                      readOnly: true,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => SearchScreen(
+                              username: widget.username,
+                              password: widget.password,
+                            ),
+                          ),
+                        );
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Buscar canal...',
+                        hintStyle: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 15,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          color: AppColors.textSecondary,
+                        ),
+                        suffixIcon: const Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 18,
+                          color: AppColors.textSecondary,
+                          ),
+                        filled: true,
+                        fillColor: AppColors.card,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: BorderSide(
+                            color: Colors.white.withValues(alpha: .08),
                           ),
                         ),
-                      );
-                    },
-                    decoration: InputDecoration(
-                      hintText: 'Buscar canales...',
-                      hintStyle: const TextStyle(
-                        color: AppColors.textSecondary,
-                      ),
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                      ),
-                      suffixIcon: const Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 18,
-                        color: AppColors.textSecondary,
-                      ),
-                      filled: true,
-                      fillColor: AppColors.card,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(30),
+                          borderSide: const BorderSide(
+                            color: AppColors.primary,
+                            width: 1.2,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 12),
+                _buildTabsBar(categories),
+                const SizedBox(height: 4),
 
                 // ----------------------------------------------------
                 // AD_SLOT_LIVE_TV — banner debajo de los filtros
                 // ----------------------------------------------------
-                const AdSlot(label: 'AD_SLOT_LIVE_TV', height: 80),
+                //const AdSlot(label: 'AD_SLOT_LIVE_TV', height: 80),
 
                 if (_selectedTabId == 'all')
                   ...sectionCategories.map(_buildChannelSection)

@@ -330,7 +330,7 @@ void _reloadFavorites() {
                 title: channel.name,
                 subtitle: 'EN VIVO',
                 imageUrl: channel.icon,
-                color: AppColors.primary,
+                color: AppColors.textSecondary,
                 onTap: () async {
                   await Navigator.push(
                     context,

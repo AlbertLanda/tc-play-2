@@ -277,63 +277,38 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
     _isClosingPlayer = true;
 
+  // Cancelamos timers inmediatamente
     _playbackWatchdog?.cancel();
     _reconnectDelayTimer?.cancel();
     _hideControlsTimer?.cancel();
 
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+
+  // 1. LIMPIEZA EN SEGUNDO PLANO
     try {
       await _playerController.player.pause();
       await _playerController.player.stop();
     } catch (e) {
-      debugPrint('Error al detener el player: $e');
+      debugPrint('Error deteniendo player: $e');
     }
 
     try {
-      await _service.stopProxy(streamId: widget.streamId);
+      await _service.stopProxy(
+        streamId: widget.streamId,
+      );
     } catch (e) {
-      debugPrint('Error al detener proxy: $e');
+      debugPrint('Error cerrando proxy: $e');
     }
 
     try {
       await _restoreOrientation();
     } catch (e) {
-      debugPrint('Error al restaurar orientación: $e');
-    }
-
-    if (mounted) {
-      Navigator.of(context).pop();
+      debugPrint('Error restaurando orientación: $e');
     }
   }
 
-  Future<String> _getPlaybackUrl({required bool preferDirect}) async {
-    if (preferDirect) {
-      try {
-        final directUrl = await _service.getStreamUrl(
-          username: widget.username,
-          password: widget.password,
-          streamId: widget.streamId,
-          output: 'ts',
-        );
-
-        debugPrint('✅ DIRECT STREAM URL OBTENIDA');
-        return directUrl;
-      } catch (e) {
-        debugPrint('⚠️ No se pudo obtener stream directo. Usando proxy HLS: $e');
-      }
-    }
-
-    final proxyUrl = await _service.getProxyStreamUrl(
-      username: widget.username,
-      password: widget.password,
-      streamId: widget.streamId,
-    );
-
-    debugPrint('✅ PROXY HLS URL OBTENIDA');
-    return proxyUrl;
-  }
-
-  // EL CARGADOR DEFINITIVO CON REINTENTOS
-  // EL CARGADOR CORREGIDO
   Future<void> _loadInitialPlayer() async {
     debugPrint("===== LOAD INITIAL PLAYER =====");
     if (_isDisposed) return;
@@ -346,8 +321,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
 
     try {
-      // 1. SOLO detenemos el motor de video. 
-      // ELIMINAMOS el stopProxy erróneo de aquí.
       await _playerController.player.stop();
       await Future.delayed(const Duration(milliseconds: 500));
 
@@ -358,28 +331,25 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       // 2. Bucle de persistencia
       while (!urlObtained && retries < _maxReconnectAttempts) {
         try {
-          streamUrl = await _getPlaybackUrl(preferDirect: true);
+          streamUrl = await _service.getProxyStreamUrl(
+            username: widget.username,
+            password: widget.password,
+            streamId: widget.streamId, // Ahora sí pedimos el canal sin haberlo matado
+          );
           urlObtained = true; 
         } catch (e) {
-          final errorText = e.toString().toLowerCase();
-
-          if (
-            errorText.contains('transcoder') ||
-            errorText.contains('segmentos hls') ||
-            errorText.contains('hls_not_ready') ||
-            errorText.contains('no generó segmentos')
-          ) {
+          if (e.toString().toLowerCase().contains('transcoder')) {
             retries++;
-            debugPrint("⚠️ HLS aún no listo. Reintento $retries de $_maxReconnectAttempts...");
+            debugPrint("⚠️ TRANSCODER OCUPADO. Reintento $retries de $_maxReconnectAttempts...");
             if (retries >= _maxReconnectAttempts) rethrow;
             await Future.delayed(const Duration(seconds: 2));
           } else {
-            rethrow;
+            rethrow; 
           }
         }
       }
 
-      debugPrint("✅ STREAM URL OBTENIDA");
+      debugPrint("✅ STREAM URL OBTENIDA: $streamUrl");
       if (!mounted || _isDisposed) return;
 
       await _playerController.initializePlayer(streamUrl);
@@ -420,13 +390,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _reconnectAttempts++;
     _playbackWatchdog?.cancel();
 
-    if (mounted) {
-      setState(() {
-        _isInitializingPlayer = true;
-        _playerError = false;
-      });
-    }
-
     try {
       await _playerController.player.stop();
       
@@ -444,19 +407,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
       while (!urlObtained && retries < _maxReconnectAttempts) {
         try {
-          newStreamUrl = await _getPlaybackUrl(preferDirect: false);
+          newStreamUrl = await _service.getProxyStreamUrl(
+            username: widget.username,
+            password: widget.password,
+            streamId: widget.streamId,
+          );
           urlObtained = true;
         } catch (e) {
-          final errorText = e.toString().toLowerCase();
-
-          if (
-            errorText.contains('transcoder') ||
-            errorText.contains('segmentos hls') ||
-            errorText.contains('hls_not_ready') ||
-            errorText.contains('no generó segmentos')
-          ) {
+          if (e.toString().toLowerCase().contains('transcoder')) {
             retries++;
-            debugPrint("⚠️ RECONEXIÓN: HLS aún no listo. Reintento $retries...");
+            debugPrint("⚠️ RECONEXIÓN: TRANSCODER OCUPADO. Reintento $retries...");
             if (retries >= _maxReconnectAttempts) rethrow;
             await Future.delayed(const Duration(seconds: 2));
           } else {
@@ -475,12 +435,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
       _reconnectAttempts = 0;
       _startPlaybackWatchdog();
-      if (mounted) {
-        setState(() {
-          _isInitializingPlayer = false;
-          _playerError = false;
-        });
-      }
+      if (mounted) setState(() => _playerError = false);
     } catch (e) {
       debugPrint('AUTOMATIC RECONNECT ERROR: $e');
       _handleReconnectFailure();
@@ -698,11 +653,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       canPop: false, 
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        if (_isLandscape) {
-          _toggleOrientation();
-        } else {
-          await _closePlayerAndExit();
-        }
+
+        await _closePlayerAndExit();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -835,14 +787,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         child: Row(
           children: [
             IconButton(
-              onPressed: () async {
-                if (_isLandscape) {
-                  _toggleOrientation();
-                } else {
-                  await _closePlayerAndExit();
-                }
-              },
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.textPrimary),
+              onPressed: _closePlayerAndExit,
+              icon: const Icon(
+                Icons.arrow_back_ios_new_rounded,
+                color: AppColors.textPrimary,
+              ),
             ),
             if (widget.channelIcon != null && widget.channelIcon!.isNotEmpty)
               ClipRRect(
@@ -903,24 +852,28 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 
   Widget _buildCenterControls() {
-    final isPlaying = _playerController.player.state.playing;
-
-    return _circleIconButton(
-      icon: isPlaying
-          ? Icons.pause_rounded
-          : Icons.play_arrow_rounded,
-      size: 34,
-      padding: 14,
-      onTap: _togglePlayPause,
-    );
+  if (_isInitializingPlayer || _playerError) {
+    return const SizedBox.shrink();
   }
 
-  Widget _circleIconButton({
-    required IconData icon,
-    required VoidCallback onTap,
-    double size = 26,
-    double padding = 10,
-  }) {
+  final isPlaying = _playerController.player.state.playing;
+
+  return _circleIconButton(
+    icon: isPlaying
+        ? Icons.pause_rounded
+        : Icons.play_arrow_rounded,
+    size: 34,
+    padding: 14,
+    onTap: _togglePlayPause,
+  );
+}
+
+Widget _circleIconButton({
+  required IconData icon,
+  required VoidCallback onTap,
+  double size = 26,
+  double padding = 10,
+}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(

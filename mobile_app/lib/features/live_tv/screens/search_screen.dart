@@ -30,6 +30,8 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _searchTimer;
 
   bool _loading = false;
+  bool _hasSearchText = false;
+  bool _isSearching = false;
   bool _isNavigating = false;
 
   List<LiveCategory> _categories = [];
@@ -48,6 +50,11 @@ class _SearchScreenState extends State<SearchScreen> {
     if (SearchCache.hasData) {
       _allCategories = SearchCache.categories!;
       _allChannels = SearchCache.channels!;
+
+      if (mounted) {
+        setState(() {});
+      }
+
       return;
     }
 
@@ -78,6 +85,10 @@ class _SearchScreenState extends State<SearchScreen> {
 
       _allCategories = categories;
       _allChannels = channels;
+
+      if (_controller.text.trim().isNotEmpty) {
+        _search(_controller.text);
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -88,15 +99,26 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _search(String query) {
+
+    setState(() {
+      _hasSearchText = query.trim().isNotEmpty;
+      _isSearching = query.trim().isNotEmpty;
+    });
     _searchTimer?.cancel();
 
     _searchTimer = Timer(
-      const Duration(milliseconds: 600),
+      const Duration(milliseconds: 300),
       () {
+        
+        if (_loading) {
+          return;
+        }
+
         if (query.trim().isEmpty) {
           setState(() {
             _categories = [];
             _channels = [];
+            _isSearching = false;
           });
           return;
         }
@@ -114,11 +136,11 @@ class _SearchScreenState extends State<SearchScreen> {
         setState(() {
           _categories = matchedCategories;
           _channels = matchedChannels;
+          _isSearching = false;
         });
       },
     );
   }
-
 
   Future<void> _openPlayer(LiveChannel channel) async {
     if (_isNavigating) return;
@@ -232,10 +254,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             ),
 
-            const SizedBox(height: 20),
-
-
-            if (_loading)
+            if (_loading && _hasSearchText)
             const Padding(
               padding: EdgeInsets.only(top: 30),
               child: Column(
@@ -245,7 +264,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                   SizedBox(height: 14),
                   Text(
-                    'Buscando canales...',
+                    'Cargando canales...',
                     style: TextStyle(
                       color: AppColors.textSecondary,
                       fontSize: 13,
@@ -259,6 +278,36 @@ class _SearchScreenState extends State<SearchScreen> {
             Expanded(
               child: ListView(
                 children: [
+                  if (!_loading && !_hasSearchText)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 80),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.search_rounded,
+                          color: AppColors.textSecondary,
+                          size: 48,
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'Busca tu canal favorito',
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Escribe el nombre del canal que deseas ver',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                   if (_categories.isNotEmpty)
                     const Text(
@@ -351,6 +400,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
 
                   if (!_loading &&
+                      !_isSearching &&
                       _channels.isEmpty &&
                       _categories.isEmpty &&
                       _controller.text.trim().isNotEmpty)
