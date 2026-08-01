@@ -27,6 +27,8 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _rememberMe = false;
 
+  double _keyboardOffset = 0;
+
   @override
   void dispose() {
     _usernameController.dispose();
@@ -37,7 +39,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ---------------------------------------------------------------------
   // ---------------------------------------------------------------------
+  void _updateKeyboardOffset(bool keyboardVisible) {
+    if (!mounted) return;
+
+    setState(() {
+      _keyboardOffset = keyboardVisible ? 90 : 0;
+    });
+  }
+
   Future<void> _login() async {
+
     if (_isLoading) return;
     
     final username = _usernameController.text.trim();
@@ -56,6 +67,8 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return;
     }
+
+    FocusScope.of(context).unfocus();
 
     setState(() {
       _isLoading = true;
@@ -112,7 +125,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ---------------------------------------------------------------------
   // ---------------------------------------------------------------------
-
   InputDecoration _fieldDecoration({
     required String hint,
     required IconData icon,
@@ -246,13 +258,20 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          
           TextField(
             controller: _usernameController,
             textInputAction: TextInputAction.next,
+
             onSubmitted: (_) {
               FocusScope.of(context).requestFocus(_passwordFocusNode);
             },
-            style: GoogleFonts.manrope(color: Colors.white, fontSize: 15),
+
+            style: GoogleFonts.manrope(
+              color: Colors.white,
+              fontSize: 15,
+            ),
+
             decoration: _fieldDecoration(
               hint: 'Tu usuario',
               icon: Icons.alternate_email_rounded,
@@ -270,27 +289,36 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          
           TextField(
             controller: _passwordController,
             focusNode: _passwordFocusNode,
+
             textInputAction: TextInputAction.done,
+
             onSubmitted: (_) => _login(),
+
             obscureText: _obscurePassword,
-            style: GoogleFonts.manrope(color: Colors.white, fontSize: 15),
+
+            style: GoogleFonts.manrope(
+              color: Colors.white,
+              fontSize: 15,
+            ),
+
             decoration: _fieldDecoration(
               hint: '••••••••',
               icon: Icons.lock_outline_rounded,
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscurePassword
-                      ? Icons.visibility_off_rounded
-                      : Icons.visibility_rounded,
+                  ? Icons.visibility_off_rounded
+                  : Icons.visibility_rounded,
                   color: AppColors.textSecondary,
                   size: 20,
                 ),
                 onPressed: () {
                   setState(() {
-                    _obscurePassword = !_obscurePassword;
+                  _obscurePassword = !_obscurePassword;
                   });
                 },
               ),
@@ -382,6 +410,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _updateKeyboardOffset(keyboardVisible);
+    });
+
     return Scaffold(
       backgroundColor: AppColors.background,
       resizeToAvoidBottomInset: false,
@@ -430,23 +464,30 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   child: SingleChildScrollView(
                     physics: const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 40,
-                  ),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 40,
                     ),
-                    child: Center(
-                      child: _buildFormCard(cardWidth),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: AnimatedSlide(
+                        duration: const Duration(milliseconds: 250),
+                        offset: Offset(
+                          0,
+                          -_keyboardOffset / 500,
+                        ),
+                        child: Center(
+                          child: _buildFormCard(cardWidth),
+                        ),
+                      )
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
-        ),
         ],
       ),
     );

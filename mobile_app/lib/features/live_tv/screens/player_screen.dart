@@ -8,6 +8,7 @@ import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/services/pip_service.dart';
 import '../services/live_tv_service.dart';
 import '../controllers/live_tv_player_controller.dart';
 import '../models/recent_channel.dart';
@@ -59,6 +60,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   bool _controlsVisible = true;
   bool _locked = false;
 
+  // Modo mini-reproductor (Picture-in-Picture): true mientras el usuario
+  // está en otra app / en el Home y solo se ve la ventanita del video.
+  bool _isInPip = PipService.isInPipMode;
+  StreamSubscription<bool>? _pipModeSub;
+
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 3;
 
@@ -93,6 +99,27 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _loadInitialPlayer();
     _scheduleHideControls();
     _initMediaControls();
+
+    _pipModeSub = PipService.pipModeStream.listen(_onPipModeChanged);
+  }
+
+  void _onPipModeChanged(bool isInPip) {
+    if (!mounted) return;
+    setState(() => _isInPip = isInPip);
+
+    if (!isInPip) {
+      // Al volver de la ventanita a pantalla completa, Android puede
+      // resetear la barra de estado/navegación: la reponemos.
+      if (_isLandscape) {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      } else {
+        SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.manual,
+          overlays: SystemUiOverlay.values,
+        );
+      }
+      _scheduleHideControls();
+    }
   }
 
   Future<void> _initMediaControls() async {
@@ -139,9 +166,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       return;
     }
 
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.paused) {
+      PipService.enterPictureInPicture();
+      return;
+    }
+
+    if (state == AppLifecycleState.detached) {
       _playerController.player.pause();
     }
   }
@@ -338,9 +368,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           );
           urlObtained = true; 
         } catch (e) {
-          if (e.toString().toLowerCase().contains('transcoder')) {
+          if (_isTransientStartupError(e)) {
             retries++;
-            debugPrint("⚠️ TRANSCODER OCUPADO. Reintento $retries de $_maxReconnectAttempts...");
+            debugPrint("⚠️ INICIO NO LISTO AÚN (${_transientErrorReason(e)}). Reintento $retries de $_maxReconnectAttempts...");
             if (retries >= _maxReconnectAttempts) rethrow;
             await Future.delayed(const Duration(seconds: 2));
           } else {
@@ -373,6 +403,27 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       if (!mounted || _isDisposed) return;
       _showPlayerError();
     }
+  }
+
+  // Algunos errores del backend son transitorios (el proxy/transcoder
+  // todavía está arrancando o generando los primeros segmentos HLS) y se
+  // resuelven solos si se reintenta a los pocos segundos. Los detectamos
+  // por el texto del mensaje para no tener que tocar el backend.
+  bool _isTransientStartupError(Object e) {
+    final msg = e.toString().toLowerCase();
+    return msg.contains('transcoder') ||
+        msg.contains('segmento') ||
+        msg.contains('segment') ||
+        msg.contains('hls');
+  }
+
+  String _transientErrorReason(Object e) {
+    final msg = e.toString().toLowerCase();
+    if (msg.contains('transcoder')) return 'transcoder ocupado';
+    if (msg.contains('segmento') || msg.contains('segment') || msg.contains('hls')) {
+      return 'segmentos HLS aún no listos';
+    }
+    return 'inicio no listo';
   }
 
   // RECONEXIÓN AUTOMÁTICA CORREGIDA
@@ -414,9 +465,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           );
           urlObtained = true;
         } catch (e) {
-          if (e.toString().toLowerCase().contains('transcoder')) {
+          if (_isTransientStartupError(e)) {
             retries++;
-            debugPrint("⚠️ RECONEXIÓN: TRANSCODER OCUPADO. Reintento $retries...");
+            debugPrint("⚠️ RECONEXIÓN: ${_transientErrorReason(e)}. Reintento $retries...");
             if (retries >= _maxReconnectAttempts) rethrow;
             await Future.delayed(const Duration(seconds: 2));
           } else {
@@ -435,7 +486,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
       _reconnectAttempts = 0;
       _startPlaybackWatchdog();
-      if (mounted) setState(() => _playerError = false);
+      if (mounted) {
+        setState(() {
+          _playerError = false;
+          // El canal ya está reproduciendo con normalidad: había quedado
+          // pegado en "Cargando canal..." porque este flag no se
+          // reseteaba aquí (solo se reseteaba en la carga inicial).
+          _isInitializingPlayer = false;
+        });
+      }
     } catch (e) {
       debugPrint('AUTOMATIC RECONNECT ERROR: $e');
       _handleReconnectFailure();
@@ -631,6 +690,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _hideControlsTimer?.cancel();
     _volumeHideTimer?.cancel();
     _brightnessHideTimer?.cancel();
+    _pipModeSub?.cancel();
     WakelockPlus.disable();
 
     // Devolvemos el brillo del dispositivo a su valor original al salir.
@@ -660,41 +720,44 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         backgroundColor: Colors.black,
         body: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: _locked ? null : _toggleControls,
-          onVerticalDragStart: _locked ? null : _handleVerticalDragStart,
-          onVerticalDragUpdate: _locked ? null : _handleVerticalDragUpdate,
-          onVerticalDragEnd: _locked ? null : _handleVerticalDragEnd,
+          onTap: (_locked || _isInPip) ? null : _toggleControls,
+          onVerticalDragStart: (_locked || _isInPip) ? null : _handleVerticalDragStart,
+          onVerticalDragUpdate: (_locked || _isInPip) ? null : _handleVerticalDragUpdate,
+          onVerticalDragEnd: (_locked || _isInPip) ? null : _handleVerticalDragEnd,
           child: Stack(
             children: [
+              // En modo mini-reproductor solo se ve el video, sin overlays.
               Positioned.fill(child: _buildPlayerContent()),
-              if (_controlsVisible) ...[
-                Positioned(top: 0, left: 0, right: 0, child: _buildTopOverlay()),
-                if (!_locked) Positioned.fill(child: Center(child: _buildCenterControls())),
-              ],
-              if (_controlsVisible)
-                Positioned(
-                  left: 12,
-                  bottom: _isLandscape ? 70 : 90,
-                  child: _buildLockButton(),
+              if (!_isInPip) ...[
+                if (_controlsVisible) ...[
+                  Positioned(top: 0, left: 0, right: 0, child: _buildTopOverlay()),
+                  if (!_locked) Positioned.fill(child: Center(child: _buildCenterControls())),
+                ],
+                if (_controlsVisible)
+                  Positioned(
+                    left: 12,
+                    bottom: _isLandscape ? 70 : 90,
+                    child: _buildLockButton(),
+                  ),
+                _buildVerticalIndicator(
+                  alignment: Alignment.centerLeft,
+                  visible: _showVolumeIndicator,
+                  value: _volume,
+                  icon: _volume <= 0
+                      ? Icons.volume_off_rounded
+                      : (_volume < 0.5
+                          ? Icons.volume_down_rounded
+                          : Icons.volume_up_rounded),
                 ),
-              _buildVerticalIndicator(
-                alignment: Alignment.centerLeft,
-                visible: _showVolumeIndicator,
-                value: _volume,
-                icon: _volume <= 0
-                    ? Icons.volume_off_rounded
-                    : (_volume < 0.5
-                        ? Icons.volume_down_rounded
-                        : Icons.volume_up_rounded),
-              ),
-              _buildVerticalIndicator(
-                alignment: Alignment.centerRight,
-                visible: _showBrightnessIndicator,
-                value: _brightness,
-                icon: _brightness < 0.5
-                    ? Icons.brightness_low_rounded
-                    : Icons.brightness_high_rounded,
-              ),
+                _buildVerticalIndicator(
+                  alignment: Alignment.centerRight,
+                  visible: _showBrightnessIndicator,
+                  value: _brightness,
+                  icon: _brightness < 0.5
+                      ? Icons.brightness_low_rounded
+                      : Icons.brightness_high_rounded,
+                ),
+              ],
             ],
           ),
         ),
@@ -907,7 +970,9 @@ Widget _circleIconButton({
 
   // ---------------------------------------------------------------------
   // Barra vertical de volumen / brillo — aparece al deslizar, del lado
-  // correspondiente, y se oculta sola.
+  // correspondiente, y se oculta sola. El tamaño y el margen se calculan
+  // según el tamaño real de la pantalla para que se vea bien en cualquier
+  // equipo (teléfono chico, grande, tablet) y en landscape/portrait.
   // ---------------------------------------------------------------------
   Widget _buildVerticalIndicator({
     required Alignment alignment,
@@ -915,6 +980,21 @@ Widget _circleIconButton({
     required double value,
     required IconData icon,
   }) {
+    final screenSize = MediaQuery.of(context).size;
+    final safePadding = MediaQuery.of(context).padding;
+
+    // Alto proporcional a la pantalla, con tope mínimo y máximo para que
+    // no se vea gigante en tablets ni diminuta en teléfonos chicos.
+    final barHeight = (screenSize.height * 0.34).clamp(110.0, 220.0);
+    final barWidth = (screenSize.width * 0.045).clamp(30.0, 42.0);
+
+    // Separación del borde: respeta el notch/cámara del lado
+    // correspondiente (importante en landscape) más un margen mínimo.
+    final edgeInset =
+        alignment == Alignment.centerLeft ? safePadding.left : safePadding.right;
+    final baseMargin = (screenSize.width * 0.035).clamp(16.0, 28.0);
+    final horizontalMargin = edgeInset + baseMargin;
+
     return IgnorePointer(
       child: AnimatedOpacity(
         opacity: visible ? 1 : 0,
@@ -922,10 +1002,10 @@ Widget _circleIconButton({
         child: Align(
           alignment: alignment,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
+            padding: EdgeInsets.symmetric(horizontal: horizontalMargin),
             child: Container(
-              width: 36,
-              height: 150,
+              width: barWidth,
+              height: barHeight,
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: .55),
@@ -949,8 +1029,8 @@ Widget _circleIconButton({
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Icon(icon, color: Colors.white, size: 16),
+                  SizedBox(height: barHeight * 0.05),
+                  Icon(icon, color: Colors.white, size: barWidth * 0.44),
                 ],
               ),
             ),
