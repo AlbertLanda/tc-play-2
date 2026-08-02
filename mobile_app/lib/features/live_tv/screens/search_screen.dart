@@ -63,28 +63,18 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final categories = await _service.getCategories(
+      // Reutiliza la precarga que ya se empezó desde Inicio (ver
+      // HomeScreen.initState) si sigue en curso, en vez de volver a
+      // pedir todo desde cero. Si por algún motivo esa precarga no
+      // llegó a dispararse, esto la inicia recién ahora.
+      await SearchCache.ensureLoaded(
+        _service,
         username: widget.username,
         password: widget.password,
       );
 
-      final List<LiveChannel> channels = [];
-
-      for (final category in categories) {
-        final result = await _service.getChannels(
-          username: widget.username,
-          password: widget.password,
-          categoryId: category.id,
-        );
-
-        channels.addAll(result);
-      }
-
-      SearchCache.categories = categories;
-      SearchCache.channels = channels;
-
-      _allCategories = categories;
-      _allChannels = channels;
+      _allCategories = SearchCache.categories ?? [];
+      _allChannels = SearchCache.channels ?? [];
 
       if (_controller.text.trim().isNotEmpty) {
         _search(_controller.text);

@@ -51,7 +51,7 @@ class LiveTvPlayerController {
   Future<void> dispose() async {
     // 3. EN LUGAR DE DESTRUIR EL MOTOR, SOLO LO DETENEMOS
     // Así mantenemos la instancia global lista para el siguiente canal y matamos el audio.
-    //await player.stop(); 
+    await player.stop();
   }
   Future<void> disposePlayer() async {
     await player.dispose();

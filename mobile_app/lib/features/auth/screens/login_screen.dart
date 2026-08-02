@@ -89,6 +89,7 @@ class _LoginScreenState extends State<LoginScreen> {
             builder: (_) => HomeScreen(
               username: username,
               password: password,
+              showWelcomeMessage: true,
             ),
           ),
         );

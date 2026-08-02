@@ -38,8 +38,14 @@ class MainActivity : FlutterActivity() {
                             .setAspectRatio(Rational(16, 9))
                             .build()
 
-                        enterPictureInPictureMode(params)
-                        result.success(true)
+                        // enterPictureInPictureMode() devuelve un boolean real
+                        // (true si Android efectivamente activó la ventanita).
+                        // Antes se ignoraba ese valor y siempre se reportaba
+                        // "true" a Flutter, así que si el sistema rechazaba el
+                        // PiP, Flutter nunca se enteraba y el audio seguía
+                        // sonando de fondo sin ventanita visible.
+                        val entered = enterPictureInPictureMode(params)
+                        result.success(entered)
 
                     } else {
                         result.success(false)

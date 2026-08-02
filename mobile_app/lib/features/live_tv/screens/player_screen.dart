@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -163,16 +164,57 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           !_playerController.player.state.playing) {
         _playerController.player.play();
       }
+
+      // El watchdog de salud de la reproducción se detiene al pasar a
+      // segundo plano sin PiP (ver _handleAppPaused). Lo reactivamos acá
+      // al volver a primer plano, para seguir detectando cortes reales
+      // de transmisión mientras el usuario está mirando el canal.
+      if (!_isReconnecting && !_playerError && !_isInitializingPlayer) {
+        _startPlaybackWatchdog();
+      }
       return;
     }
 
     if (state == AppLifecycleState.paused) {
-      PipService.enterPictureInPicture();
+      _handleAppPaused();
       return;
     }
 
     if (state == AppLifecycleState.detached) {
+      _playbackWatchdog?.cancel();
+      _reconnectDelayTimer?.cancel();
       _playerController.player.pause();
+    }
+  }
+
+  Future<void> _handleAppPaused() async {
+    await PipService.enterPictureInPicture();
+
+    // Le damos un pequeño margen para que, si Android sí activó el
+    // mini-reproductor (por ejemplo vía onUserLeaveHint nativo), el
+    // aviso onPictureInPictureModeChanged llegue a Flutter antes de
+    // decidir si pausamos.
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    if (!mounted || _isDisposed) return;
+
+    if (!PipService.isInPipMode) {
+      // El mini-reproductor no se activó (no soportado en este equipo,
+      // el sistema lo rechazó, etc.): no dejamos el audio sonando de
+      // fondo sin que el usuario vea nada. Se reanuda solo al volver
+      // a la app gracias al bloque de AppLifecycleState.resumed.
+      //
+      // IMPORTANTE: también hay que detener el watchdog de reconexión
+      // automática. Si se deja corriendo, a los pocos segundos detecta
+      // que la posición está "congelada" (justamente porque acabamos de
+      // pausar a propósito) y dispara una reconexión automática que
+      // vuelve a abrir el stream y llama a play() — eso es lo que hacía
+      // que, aunque la app quedara solo en "apps recientes" sin estar
+      // visible ni con el mini-reproductor activo, el audio del canal
+      // se volviera a escuchar solo unos segundos después.
+      _playbackWatchdog?.cancel();
+      _reconnectDelayTimer?.cancel();
+      await _playerController.player.pause();
     }
   }
 
@@ -312,11 +354,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _reconnectDelayTimer?.cancel();
     _hideControlsTimer?.cancel();
 
+    // Restauramos la orientación YA, sin esperar a la limpieza de red
+    // (detener el player, cerrar el proxy) que puede tardar. Antes esto
+    // se hacía al final, así que la pantalla anterior se veía en
+    // horizontal varios segundos hasta que esas llamadas terminaban.
+    unawaited(_restoreOrientation());
+
     if (mounted) {
       Navigator.of(context).pop();
     }
 
-  // 1. LIMPIEZA EN SEGUNDO PLANO
+  // 1. LIMPIEZA EN SEGUNDO PLANO (ya no bloquea la salida visual)
     try {
       await _playerController.player.pause();
       await _playerController.player.stop();
@@ -330,12 +378,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       );
     } catch (e) {
       debugPrint('Error cerrando proxy: $e');
-    }
-
-    try {
-      await _restoreOrientation();
-    } catch (e) {
-      debugPrint('Error restaurando orientación: $e');
     }
   }
 
@@ -352,7 +394,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
     try {
       await _playerController.player.stop();
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Antes había una espera fija de 500ms "por las dudas" antes de
+      // siquiera pedir la URL del canal. player.stop() ya se espera
+      // (await) arriba, así que ese tiempo era puro tiempo muerto. Se
+      // deja un margen chico (no cero) solo por seguridad.
+      await Future.delayed(const Duration(milliseconds: 100));
 
       String streamUrl = '';
       bool urlObtained = false;
@@ -389,6 +435,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         return;
       }
 
+      await _waitUntilVideoReady();
+      if (!mounted || _isDisposed) return;
+
       _reconnectAttempts = 0;
       _startPlaybackWatchdog();
 
@@ -402,6 +451,35 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       debugPrint('❌ ERROR FATAL PLAYER: $e');
       if (!mounted || _isDisposed) return;
       _showPlayerError();
+    }
+  }
+
+  // Espera a que el player realmente termine el buffering inicial y
+  // tenga video listo para mostrar, en vez de solo esperar a que se
+  // haya enviado el comando de reproducir. Sin esto, el spinner
+  // desaparecía antes de que llegara el primer frame real, dejando un
+  // instante de pantalla negra "vacía" (sin spinner y sin canal).
+  // Tiene un tope de tiempo para no dejar el spinner pegado si el
+  // aviso de "listo" nunca llega.
+  Future<void> _waitUntilVideoReady() async {
+    if (_playerController.player.state.buffering == false) return;
+
+    final completer = Completer<void>();
+    late final StreamSubscription<bool> sub;
+
+    sub = _playerController.player.stream.buffering.listen((buffering) {
+      if (!buffering && !completer.isCompleted) {
+        completer.complete();
+      }
+    });
+
+    try {
+      await completer.future.timeout(const Duration(seconds: 6));
+    } catch (_) {
+      // Tardó demasiado en avisar: mostramos el canal igual, es mejor
+      // eso a dejar el "Cargando canal..." pegado indefinidamente.
+    } finally {
+      await sub.cancel();
     }
   }
 
@@ -483,6 +561,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         _handleReconnectFailure();
         return;
       }
+
+      await _waitUntilVideoReady();
+      if (_isDisposed) return;
 
       _reconnectAttempts = 0;
       _startPlaybackWatchdog();
@@ -699,6 +780,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _playerController.dispose();
 
     if (!_isClosingPlayer) {
+      // Salida "no limpia": el sistema cerró la app o el mini-reproductor
+      // (X del PiP, quitar la app de recientes, Android matando la
+      // Activity) en vez de usar el botón de volver. El reproductor es
+      // una instancia global compartida, así que si no se detiene aquí
+      // explícitamente sigue sonando con lo que ya tenía en buffer
+      // aunque la pantalla ya no exista.
+      unawaited(_playerController.player.pause());
+      unawaited(_playerController.player.stop());
       unawaited(_service.stopProxy(streamId: widget.streamId));
       unawaited(_restoreOrientation());
     }
@@ -973,6 +1062,8 @@ Widget _circleIconButton({
   // correspondiente, y se oculta sola. El tamaño y el margen se calculan
   // según el tamaño real de la pantalla para que se vea bien en cualquier
   // equipo (teléfono chico, grande, tablet) y en landscape/portrait.
+  // Diseño tipo "glass" con degradado de marca y porcentaje, en vez de
+  // la barra plana anterior.
   // ---------------------------------------------------------------------
   Widget _buildVerticalIndicator({
     required Alignment alignment,
@@ -985,8 +1076,8 @@ Widget _circleIconButton({
 
     // Alto proporcional a la pantalla, con tope mínimo y máximo para que
     // no se vea gigante en tablets ni diminuta en teléfonos chicos.
-    final barHeight = (screenSize.height * 0.34).clamp(110.0, 220.0);
-    final barWidth = (screenSize.width * 0.045).clamp(30.0, 42.0);
+    final barHeight = (screenSize.height * 0.36).clamp(140.0, 235.0);
+    final barWidth = (screenSize.width * 0.05).clamp(36.0, 48.0);
 
     // Separación del borde: respeta el notch/cámara del lado
     // correspondiente (importante en landscape) más un margen mínimo.
@@ -995,43 +1086,97 @@ Widget _circleIconButton({
     final baseMargin = (screenSize.width * 0.035).clamp(16.0, 28.0);
     final horizontalMargin = edgeInset + baseMargin;
 
+    final clampedValue = value.clamp(0.0, 1.0);
+    final percent = (clampedValue * 100).round();
+    final trackWidth = barWidth * 0.32;
+
     return IgnorePointer(
       child: AnimatedOpacity(
         opacity: visible ? 1 : 0,
-        duration: const Duration(milliseconds: 150),
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
         child: Align(
           alignment: alignment,
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: horizontalMargin),
-            child: Container(
-              width: barWidth,
-              height: barHeight,
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: .55),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white.withValues(alpha: .08)),
-              ),
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.bottomCenter,
-                      child: FractionallySizedBox(
-                        heightFactor: value.clamp(0.0, 1.0),
-                        widthFactor: 1,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: AppColors.accent,
-                            borderRadius: BorderRadius.circular(20),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(barWidth / 2),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: Container(
+                  width: barWidth,
+                  height: barHeight,
+                  padding: EdgeInsets.symmetric(vertical: barHeight * 0.06),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        AppColors.surface.withValues(alpha: .8),
+                        AppColors.background.withValues(alpha: .88),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(barWidth / 2),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: .14),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: .4),
+                        blurRadius: 18,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        '$percent%',
+                        style: TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: barWidth * 0.26,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      SizedBox(height: barHeight * 0.045),
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(trackWidth / 2),
+                          child: Container(
+                            width: trackWidth,
+                            color: Colors.white.withValues(alpha: .12),
+                            child: Align(
+                              alignment: Alignment.bottomCenter,
+                              child: FractionallySizedBox(
+                                heightFactor: clampedValue,
+                                widthFactor: 1,
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                      colors: [
+                                        AppColors.accent,
+                                        AppColors.primary,
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                      SizedBox(height: barHeight * 0.045),
+                      Icon(
+                        icon,
+                        color: AppColors.textPrimary,
+                        size: barWidth * 0.4,
+                      ),
+                    ],
                   ),
-                  SizedBox(height: barHeight * 0.05),
-                  Icon(icon, color: Colors.white, size: barWidth * 0.44),
-                ],
+                ),
               ),
             ),
           ),
