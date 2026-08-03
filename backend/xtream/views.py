@@ -219,11 +219,20 @@ def live_proxy_url(request):
                 "No se pudo construir la URL original del stream."
             )
 
+        # El modo (remux / transcode_audio / transcode) lo decide el backend
+        # sondeando el stream (incluye la normalización móvil por fps: HD a
+        # 60fps -> transcode 720p30). Ver transcoder.decide_mode().
         _, reused, mode = transcoder.start_hls_transcode(
             source_url, safe_stream_id
         )
 
-        if not reused and not transcoder.wait_for_hls_ready(safe_stream_id):
+        # El transcode completo tarda más en producir el primer segmento
+        # (libx264 llena su buffer); se le da más margen que a un remux para
+        # no fallar por timeout.
+        ready_timeout = 40 if mode == "transcode" else 15
+        if not reused and not transcoder.wait_for_hls_ready(
+            safe_stream_id, timeout_seconds=ready_timeout
+        ):
             # Se captura el diagnóstico ANTES de limpiar, para explicar por qué
             # no quedó listo (faltó index, segmentos, proceso vivo o dañado).
             hls_status = transcoder.get_hls_status(safe_stream_id)

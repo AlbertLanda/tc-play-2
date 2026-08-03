@@ -30,22 +30,22 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   final LiveTvService _service = LiveTvService();
 
-  late Future<String> _streamUrl;
-
   VideoPlayerController? _videoPlayerController;
 
   Timer? _playbackWatchdog;
+  Timer? _reconnectDelayTimer;
 
   bool _isInitializingPlayer = false;
   bool _playerError = false;
   bool _isReconnecting = false;
+  bool _isDisposed = false;
 
-  Duration _lastPosition = Duration.zero;
-  int _stalledChecks = 0;
   int _reconnectAttempts = 0;
 
   static const int _maxReconnectAttempts = 2;
-  static const int _maxStalledChecks = 2;
+
+  Duration _lastPosition = Duration.zero;
+  DateTime _lastPositionChange = DateTime.now();
 
   @override
   void initState() {
@@ -53,161 +53,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     WakelockPlus.enable();
 
-    _streamUrl = _service.getProxyStreamUrl(
-      username: widget.username,
-      password: widget.password,
-      streamId: widget.streamId,
-    );
+    _loadInitialPlayer();
   }
 
-  Future<void> _initializePlayer(String url) async {
-    try {
-      await _videoPlayerController?.dispose();
-      _videoPlayerController = null;
-
-      _stopPlaybackWatchdog();
-
-      if (mounted) {
-        setState(() {
-          _isInitializingPlayer = true;
-          _playerError = false;
-        });
-      }
-
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(url),
-        videoPlayerOptions: VideoPlayerOptions(
-          mixWithOthers: true,
-        ),
-      );
-
-      _videoPlayerController = controller;
-
-      controller.addListener(() {
-        if (controller.value.hasError) {
-          debugPrint(
-            'VIDEO ERROR: ${controller.value.errorDescription}',
-          );
-
-          if (!_isReconnecting &&
-              _reconnectAttempts < _maxReconnectAttempts) {
-            _reconnectPlayer();
-          }
-        }
-      });
-
-      await controller.initialize();
-
-      if (controller.value.isInitialized) {
-        await controller.play();
-
-        _startPlaybackWatchdog();
-      }
-
-      if (mounted) {
-        setState(() {
-          _isInitializingPlayer = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('PLAYER INITIALIZATION ERROR: $e');
-
-      _stopPlaybackWatchdog();
-
-      await _videoPlayerController?.dispose();
-      _videoPlayerController = null;
-
-      if (_isReconnecting) {
-        if (_reconnectAttempts >= _maxReconnectAttempts) {
-          _finishWithError();
-        }
-      } else if (mounted) {
-        setState(() {
-          _isInitializingPlayer = false;
-          _playerError = true;
-        });
-      }
-    }
-  }
-
-  void _startPlaybackWatchdog() {
-    _stopPlaybackWatchdog();
-
-    _lastPosition = Duration.zero;
-    _stalledChecks = 0;
-
-    _playbackWatchdog = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) {
-        _checkPlaybackProgress();
-      },
-    );
-
-    debugPrint('PLAYBACK WATCHDOG STARTED');
-  }
-
-  void _stopPlaybackWatchdog() {
-    _playbackWatchdog?.cancel();
-    _playbackWatchdog = null;
-  }
-
-  void _checkPlaybackProgress() {
-    final controller = _videoPlayerController;
-
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        _isInitializingPlayer ||
-        _isReconnecting ||
-        _playerError) {
+  Future<void> _loadInitialPlayer() async {
+    if (_isDisposed) {
       return;
     }
-
-    final currentPosition = controller.value.position;
-
-    if (currentPosition > _lastPosition) {
-      _lastPosition = currentPosition;
-      _stalledChecks = 0;
-
-      debugPrint(
-        'PLAYBACK OK - POSITION: $currentPosition',
-      );
-
-      return;
-    }
-
-    _stalledChecks++;
-
-    debugPrint(
-      'PLAYBACK STALLED - CHECK '
-      '$_stalledChecks/$_maxStalledChecks - '
-      'POSITION: $currentPosition',
-    );
-
-    if (_stalledChecks >= _maxStalledChecks) {
-      debugPrint('PLAYBACK FREEZE DETECTED');
-
-      if (_reconnectAttempts < _maxReconnectAttempts) {
-        _reconnectPlayer();
-      } else {
-        _finishWithError();
-      }
-    }
-  }
-
-  Future<void> _reconnectPlayer() async {
-    if (_isReconnecting) {
-      return;
-    }
-
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      _finishWithError();
-      return;
-    }
-
-    _isReconnecting = true;
-    _reconnectAttempts++;
-
-    _stopPlaybackWatchdog();
 
     if (mounted) {
       setState(() {
@@ -216,18 +68,172 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
     }
 
-    debugPrint(
-      'RECONNECTING PLAYER - ATTEMPT '
-      '$_reconnectAttempts/$_maxReconnectAttempts',
+    try {
+      final streamUrl = await _service.getProxyStreamUrl(
+        username: widget.username,
+        password: widget.password,
+        streamId: widget.streamId,
+      );
+
+      if (!mounted || _isDisposed) {
+        return;
+      }
+
+      final controller = await _createAndInitializeController(streamUrl);
+
+      if (!mounted || _isDisposed) {
+        await controller?.dispose();
+        return;
+      }
+
+      if (controller == null) {
+        _showPlayerError();
+        return;
+      }
+
+      _videoPlayerController = controller;
+
+      await controller.play();
+
+      _reconnectAttempts = 0;
+
+      _startPlaybackWatchdog();
+
+      setState(() {
+        _isInitializingPlayer = false;
+        _playerError = false;
+      });
+
+      debugPrint('PLAYER INITIALIZED SUCCESSFULLY');
+    } catch (e) {
+      debugPrint('INITIAL PLAYER ERROR: $e');
+
+      if (!mounted || _isDisposed) {
+        return;
+      }
+
+      _showPlayerError();
+    }
+  }
+
+  Future<VideoPlayerController?> _createAndInitializeController(
+    String url,
+  ) async {
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
     );
 
     try {
-      await _videoPlayerController?.dispose();
-      _videoPlayerController = null;
+      await controller.initialize();
 
-      await _service.stopProxy(
-        streamId: widget.streamId,
+      if (!controller.value.isInitialized) {
+        await controller.dispose();
+        return null;
+      }
+
+      controller.addListener(() {
+        if (_isDisposed) {
+          return;
+        }
+
+        if (controller.value.hasError &&
+            identical(controller, _videoPlayerController)) {
+          debugPrint('VIDEO ERROR: ${controller.value.errorDescription}');
+
+          _startAutomaticReconnect();
+        }
+      });
+
+      return controller;
+    } catch (e) {
+      debugPrint('CONTROLLER INITIALIZATION ERROR: $e');
+
+      await controller.dispose();
+
+      return null;
+    }
+  }
+
+  void _startPlaybackWatchdog() {
+    _playbackWatchdog?.cancel();
+
+    _lastPosition = _videoPlayerController?.value.position ?? Duration.zero;
+    _lastPositionChange = DateTime.now();
+
+    _playbackWatchdog = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _checkPlaybackHealth(),
+    );
+  }
+
+  void _checkPlaybackHealth() {
+    if (_isDisposed || _isReconnecting || _videoPlayerController == null) {
+      return;
+    }
+
+    final controller = _videoPlayerController!;
+
+    if (!controller.value.isInitialized) {
+      return;
+    }
+
+    if (controller.value.hasError) {
+      _startAutomaticReconnect();
+      return;
+    }
+
+    final currentPosition = controller.value.position;
+
+    if (currentPosition != _lastPosition) {
+      _lastPosition = currentPosition;
+      _lastPositionChange = DateTime.now();
+      return;
+    }
+
+    final frozenDuration = DateTime.now().difference(_lastPositionChange);
+
+    if (frozenDuration >= const Duration(seconds: 10)) {
+      debugPrint(
+        'PLAYBACK FROZEN FOR 10 SECONDS - '
+        'STARTING AUTOMATIC RECOVERY',
       );
+
+      _startAutomaticReconnect();
+    }
+  }
+
+  Future<void> _startAutomaticReconnect() async {
+    if (_isReconnecting || _isDisposed) {
+      return;
+    }
+
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      debugPrint('MAXIMUM AUTOMATIC RECONNECT ATTEMPTS REACHED');
+
+      _showPlayerError();
+
+      return;
+    }
+
+    _isReconnecting = true;
+    _reconnectAttempts++;
+
+    debugPrint(
+      'AUTOMATIC RECONNECT '
+      '$_reconnectAttempts/$_maxReconnectAttempts',
+    );
+
+    _playbackWatchdog?.cancel();
+
+    final oldController = _videoPlayerController;
+
+    try {
+      await _service.stopProxy(streamId: widget.streamId);
+
+      if (_isDisposed) {
+        return;
+      }
 
       final newStreamUrl = await _service.getProxyStreamUrl(
         username: widget.username,
@@ -235,43 +241,81 @@ class _PlayerScreenState extends State<PlayerScreen> {
         streamId: widget.streamId,
       );
 
-      if (!mounted) {
+      if (_isDisposed) {
         return;
       }
 
-      await _initializePlayer(newStreamUrl);
+      final newController = await _createAndInitializeController(newStreamUrl);
 
-      final controller = _videoPlayerController;
-
-      if (controller != null &&
-          controller.value.isInitialized &&
-          !controller.value.hasError) {
+      if (newController == null) {
         debugPrint(
-          'PLAYER RECONNECTED SUCCESSFULLY - ATTEMPT '
+          'AUTOMATIC RECONNECT FAILED '
           '$_reconnectAttempts/$_maxReconnectAttempts',
         );
-      }
-    } catch (e) {
-      debugPrint('RECONNECTION ERROR: $e');
 
-      if (_reconnectAttempts >= _maxReconnectAttempts) {
-        _finishWithError();
-      }
-    } finally {
-      _isReconnecting = false;
+        _handleReconnectFailure();
 
-      if (mounted && !_playerError) {
+        return;
+      }
+
+      if (_isDisposed || !mounted) {
+        await newController.dispose();
+        return;
+      }
+
+      await newController.play();
+
+      _videoPlayerController = newController;
+
+      await oldController?.dispose();
+
+      _reconnectAttempts = 0;
+
+      _startPlaybackWatchdog();
+
+      debugPrint('AUTOMATIC RECONNECT SUCCESS');
+
+      if (mounted) {
         setState(() {
-          _isInitializingPlayer = false;
+          _playerError = false;
         });
       }
+    } catch (e) {
+      debugPrint('AUTOMATIC RECONNECT ERROR: $e');
+
+      _handleReconnectFailure();
+    } finally {
+      _isReconnecting = false;
     }
   }
 
-  void _finishWithError() {
-    _stopPlaybackWatchdog();
+  void _handleReconnectFailure() {
+    if (_isDisposed) {
+      return;
+    }
 
-    if (!mounted) {
+    if (_reconnectAttempts < _maxReconnectAttempts) {
+      _reconnectDelayTimer?.cancel();
+
+      _reconnectDelayTimer = Timer(const Duration(seconds: 2), () {
+        if (!_isDisposed && !_isReconnecting) {
+          _startAutomaticReconnect();
+        }
+      });
+
+      return;
+    }
+
+    debugPrint(
+      'AUTOMATIC RECONNECT FAILED '
+      'AFTER $_maxReconnectAttempts ATTEMPTS',
+    );
+
+    _showPlayerError();
+  }
+
+  void _showPlayerError() {
+    if (!mounted || _isDisposed) {
       return;
     }
 
@@ -279,70 +323,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _isInitializingPlayer = false;
       _playerError = true;
     });
-
-    debugPrint(
-      'PLAYER ERROR: Maximum automatic reconnection attempts reached.',
-    );
   }
 
   Future<void> _refresh() async {
-    _reconnectAttempts = 0;
-    _stalledChecks = 0;
-    _isReconnecting = false;
-
-    _stopPlaybackWatchdog();
-
-    await _videoPlayerController?.dispose();
-    _videoPlayerController = null;
-
-    await _service.stopProxy(
-      streamId: widget.streamId,
-    );
-
-    if (!mounted) {
+    if (_isDisposed) {
       return;
     }
 
-    setState(() {
-      _playerError = false;
-      _isInitializingPlayer = true;
+    _reconnectAttempts = 0;
+    _playerError = false;
 
-      _streamUrl = _service.getProxyStreamUrl(
-        username: widget.username,
-        password: widget.password,
-        streamId: widget.streamId,
-      );
-    });
-
-    try {
-      final newStreamUrl = await _streamUrl;
-
-      if (mounted) {
-        await _initializePlayer(newStreamUrl);
-      }
-    } catch (e) {
-      debugPrint('MANUAL RETRY ERROR: $e');
-
-      if (mounted) {
-        setState(() {
-          _isInitializingPlayer = false;
-          _playerError = true;
-        });
-      }
-    }
+    await _startAutomaticReconnect();
   }
 
   @override
   void dispose() {
-    _stopPlaybackWatchdog();
+    _isDisposed = true;
+
+    _playbackWatchdog?.cancel();
+    _reconnectDelayTimer?.cancel();
 
     WakelockPlus.disable();
 
     _videoPlayerController?.dispose();
 
-    _service.stopProxy(
-      streamId: widget.streamId,
-    );
+    _service.stopProxy(streamId: widget.streamId);
 
     super.dispose();
   }
@@ -353,135 +358,55 @@ class _PlayerScreenState extends State<PlayerScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.background,
-        title: Text(widget.channelName),
         centerTitle: true,
+        title: Text(widget.channelName),
       ),
-      body: FutureBuilder<String>(
-        future: _streamUrl,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(
-                color: AppColors.neonGreen,
-              ),
-            );
-          }
-
-          if (snapshot.hasError) {
-            return _buildErrorView(
-              message: 'No se pudo cargar el canal.',
-            );
-          }
-
-          final streamUrl = snapshot.data!;
-
-          if (_videoPlayerController == null &&
-              !_isInitializingPlayer &&
-              !_playerError &&
-              !_isReconnecting) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                _initializePlayer(streamUrl);
-              }
-            });
-          }
-
-          if (_isReconnecting) {
-            return _buildReconnectingView();
-          }
-
-          if (_isInitializingPlayer) {
-            return const Center(
-              child: CircularProgressIndicator(
-                color: AppColors.neonGreen,
-              ),
-            );
-          }
-
-          if (_playerError) {
-            return _buildErrorView(
-              message: 'No se pudo reproducir el canal.',
-            );
-          }
-
-          if (_videoPlayerController != null &&
-              _videoPlayerController!.value.isInitialized) {
-            return Center(
-              child: AspectRatio(
-                aspectRatio: _videoPlayerController!.value.aspectRatio,
-                child: VideoPlayer(
-                  _videoPlayerController!,
-                ),
-              ),
-            );
-          }
-
-          return const Center(
-            child: CircularProgressIndicator(
-              color: AppColors.neonGreen,
-            ),
-          );
-        },
-      ),
+      body: _buildPlayerContent(),
     );
   }
 
-  Widget _buildReconnectingView() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(
-            color: AppColors.neonGreen,
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Reconectando canal...',
-            style: TextStyle(
-              color: AppColors.white,
-              fontSize: 16,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Intento $_reconnectAttempts de $_maxReconnectAttempts',
-            style: const TextStyle(
-              color: Colors.white70,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildPlayerContent() {
+    final controller = _videoPlayerController;
 
-  Widget _buildErrorView({
-    required String message,
-  }) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.error_outline,
-            color: Colors.red,
-            size: 50,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            style: const TextStyle(
-              color: AppColors.white,
+    if (controller != null && controller.value.isInitialized && !_playerError) {
+      return Center(
+        child: AspectRatio(
+          aspectRatio: controller.value.aspectRatio,
+          child: VideoPlayer(controller),
+        ),
+      );
+    }
+
+    if (_isInitializingPlayer) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.neonGreen),
+      );
+    }
+
+    if (_playerError) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: Colors.red, size: 50),
+            const SizedBox(height: 16),
+            const Text(
+              'No se pudo reproducir el canal.',
+              style: TextStyle(color: AppColors.white),
             ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Reintentar'),
-          ),
-        ],
-      ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _refresh,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Reintentar'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return const Center(
+      child: CircularProgressIndicator(color: AppColors.neonGreen),
     );
   }
 }
-

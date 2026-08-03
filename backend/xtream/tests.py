@@ -343,30 +343,56 @@ class TranscoderModeTests(SimpleTestCase):
     Se mockea probe_codecs para no depender de ffprobe ni de un stream real.
     """
 
-    @patch("xtream.services.transcoder.probe_codecs", return_value=("h264", "aac"))
-    def test_remux_si_codec_compatible(self, _mock_probe):
-        """h264 + aac -> remux (no hace falta transcodificar)."""
+    @staticmethod
+    def _info(video, audio, height=1080, fps=30.0):
+        return {
+            "video_codec": video,
+            "audio_codec": audio,
+            "height": height,
+            "fps": fps,
+        }
+
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_remux_si_codec_compatible(self, mock_probe):
+        """h264 + aac (30fps) -> remux (no hace falta transcodificar)."""
+        mock_probe.return_value = self._info("h264", "aac")
         self.assertEqual(transcoder.decide_mode("http://x"), "remux")
 
-    @patch("xtream.services.transcoder.probe_codecs", return_value=("h264", "mp2"))
-    def test_transcode_audio_si_solo_audio_incompatible(self, _mock_probe):
-        """h264 + mp2 -> transcode_audio (video OK, solo se arregla el audio)."""
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_transcode_audio_si_solo_audio_incompatible(self, mock_probe):
+        """h264 + mp2 (30fps) -> transcode_audio (video OK, se arregla audio)."""
+        mock_probe.return_value = self._info("h264", "mp2")
         self.assertEqual(transcoder.decide_mode("http://x"), "transcode_audio")
 
-    @patch("xtream.services.transcoder.probe_codecs", return_value=("h264", None))
-    def test_remux_si_video_ok_sin_audio(self, _mock_probe):
-        """h264 sin audio detectado -> remux (no hay audio que arreglar)."""
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_remux_si_video_ok_sin_audio(self, mock_probe):
+        """h264 sin audio detectado (30fps) -> remux."""
+        mock_probe.return_value = self._info("h264", None)
         self.assertEqual(transcoder.decide_mode("http://x"), "remux")
 
-    @patch("xtream.services.transcoder.probe_codecs", return_value=("hevc", "ac3"))
-    def test_transcode_si_codec_incompatible(self, _mock_probe):
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_transcode_si_codec_incompatible(self, mock_probe):
         """hevc / ac3 -> transcode (el navegador no soporta el video)."""
+        mock_probe.return_value = self._info("hevc", "ac3")
         self.assertEqual(transcoder.decide_mode("http://x"), "transcode")
 
-    @patch("xtream.services.transcoder.probe_codecs", return_value=(None, None))
-    def test_transcode_si_codec_desconocido(self, _mock_probe):
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_transcode_si_codec_desconocido(self, mock_probe):
         """Si no se puede leer el códec -> transcode por seguridad."""
+        mock_probe.return_value = self._info(None, None, height=None, fps=None)
         self.assertEqual(transcoder.decide_mode("http://x"), "transcode")
+
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_transcode_movil_si_alto_framerate(self, mock_probe):
+        """h264 + aac PERO a 60fps -> transcode (normalización móvil 720p30)."""
+        mock_probe.return_value = self._info("h264", "aac", fps=59.94)
+        self.assertEqual(transcoder.decide_mode("http://x"), "transcode")
+
+    @patch("xtream.services.transcoder.probe_stream_info")
+    def test_transcode_audio_no_sube_a_transcode_a_30fps(self, mock_probe):
+        """h264 + mp2 a 29.97fps NO se sube a transcode (el cel lo maneja)."""
+        mock_probe.return_value = self._info("h264", "mp2", fps=29.97)
+        self.assertEqual(transcoder.decide_mode("http://x"), "transcode_audio")
 
     def test_build_command_remux_usa_copy(self):
         """El comando en modo remux usa -c copy y no libx264."""

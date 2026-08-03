@@ -161,6 +161,12 @@ MAX_CONCURRENT_TRANSCODES = config("MAX_CONCURRENT_TRANSCODES", default=5, cast=
 # pronto). Usado por wait_for_hls_ready() y por el diagnóstico hls-status.
 HLS_MIN_SEGMENTS = config("HLS_MIN_SEGMENTS", default=2, cast=int)
 
+# Normalización móvil por framerate: un canal cuyo video se copiaría tal cual
+# (remux / transcode_audio) pero que emite a MÁS de estos fps se recodifica a
+# 720p30. El decoder de hardware del cel batalla con HD a 60fps (bloques /
+# fotogramas soltados). Usado por transcoder.decide_mode().
+MOBILE_TRANSCODE_MAX_FPS = config("MOBILE_TRANSCODE_MAX_FPS", default=30, cast=int)
+
 # --- Astra playlist ---
 ASTRA_PLAYLIST_URL = config("ASTRA_PLAYLIST_URL", default="")
 
