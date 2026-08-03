@@ -146,7 +146,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     });
 
     _errorSub = _playerController.player.stream.error.listen((error) {
-      debugPrint("MEDIA KIT STREAM ERROR: $error");
+      debugPrint("MEDIA KIT STREAM ERROR: no se pudo abrir el stream");
       if (!_isReconnecting && !_isDisposed) {
         _playerController.hasError = true;
         _startAutomaticReconnect();
@@ -381,6 +381,33 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
   }
 
+  Future<String> _getPlaybackUrl({required bool preferDirect}) async {
+    if (preferDirect) {
+      try {
+        final directUrl = await _service.getStreamUrl(
+          username: widget.username,
+          password: widget.password,
+          streamId: widget.streamId,
+          output: 'ts',
+        );
+
+        debugPrint('✅ DIRECT STREAM URL OBTENIDA');
+        return directUrl;
+      } catch (e) {
+        debugPrint('⚠️ No se pudo obtener stream directo. Usando proxy HLS.');
+      }
+    }
+
+    final proxyUrl = await _service.getProxyStreamUrl(
+      username: widget.username,
+      password: widget.password,
+      streamId: widget.streamId,
+    );
+
+    debugPrint('✅ PROXY HLS URL OBTENIDA');
+    return proxyUrl;
+  }
+
   Future<void> _loadInitialPlayer() async {
     debugPrint("===== LOAD INITIAL PLAYER =====");
     if (_isDisposed) return;
@@ -407,11 +434,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       // 2. Bucle de persistencia
       while (!urlObtained && retries < _maxReconnectAttempts) {
         try {
-          streamUrl = await _service.getProxyStreamUrl(
-            username: widget.username,
-            password: widget.password,
-            streamId: widget.streamId, // Ahora sí pedimos el canal sin haberlo matado
-          );
+          streamUrl = await _getPlaybackUrl(preferDirect: true);
           urlObtained = true; 
         } catch (e) {
           if (_isTransientStartupError(e)) {
@@ -425,7 +448,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         }
       }
 
-      debugPrint("✅ STREAM URL OBTENIDA: $streamUrl");
+      debugPrint("✅ STREAM URL OBTENIDA");
       if (!mounted || _isDisposed) return;
 
       await _playerController.initializePlayer(streamUrl);
@@ -448,7 +471,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         });
       }
     } catch (e) {
-      debugPrint('❌ ERROR FATAL PLAYER: $e');
+      debugPrint('❌ ERROR FATAL PLAYER');
       if (!mounted || _isDisposed) return;
       _showPlayerError();
     }
@@ -474,7 +497,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     });
 
     try {
-      await completer.future.timeout(const Duration(seconds: 6));
+      await completer.future.timeout(const Duration(seconds: 8));
     } catch (_) {
       // Tardó demasiado en avisar: mostramos el canal igual, es mejor
       // eso a dejar el "Cargando canal..." pegado indefinidamente.
@@ -536,11 +559,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
       while (!urlObtained && retries < _maxReconnectAttempts) {
         try {
-          newStreamUrl = await _service.getProxyStreamUrl(
-            username: widget.username,
-            password: widget.password,
-            streamId: widget.streamId,
-          );
+          newStreamUrl = await _getPlaybackUrl(preferDirect: false);
           urlObtained = true;
         } catch (e) {
           if (_isTransientStartupError(e)) {
@@ -577,7 +596,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         });
       }
     } catch (e) {
-      debugPrint('AUTOMATIC RECONNECT ERROR: $e');
+      debugPrint('AUTOMATIC RECONNECT ERROR');
       _handleReconnectFailure();
     } finally {
       _isReconnecting = false;
