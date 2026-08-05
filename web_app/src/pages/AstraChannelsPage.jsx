@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getAstraChannels } from '../api/astraApi';
+import { getChannelLogo } from '../constants/channelLogos';
+import { IconChevronLeft, IconSearch, IconTv, IconRefresh } from '../components/Icons';
 
 export function AstraChannelsPage({
   channels: initialChannels = [],
@@ -47,22 +49,28 @@ export function AstraChannelsPage({
 
   return (
     <main className="page">
-      <section className="page-header">
-        <button type="button" className="back-button" onClick={onBack}>
-          ← Volver
+      <header className="page-header">
+        <button
+          type="button"
+          className="icon-btn icon-btn-lg"
+          onClick={onBack}
+          aria-label="Volver"
+        >
+          <IconChevronLeft />
         </button>
 
         <div>
-          <p className="eyebrow">TC Play 2.0</p>
+          <span className="eyebrow-pill">TC Play 2.0</span>
           <h1>TV en vivo</h1>
           <p className="muted-text">
             Elige un canal para iniciar la reproducción.
           </p>
         </div>
-      </section>
+      </header>
 
       <section className="panel">
         <div className="search-box">
+          <IconSearch />
           <input
             type="text"
             placeholder="Buscar canal..."
@@ -89,7 +97,7 @@ export function AstraChannelsPage({
             <h2>No se pudieron cargar los canales</h2>
             <p>{errorMessage}</p>
             <button type="button" onClick={loadChannels}>
-              Reintentar
+              <IconRefresh /> Reintentar
             </button>
           </div>
         )}
@@ -103,30 +111,27 @@ export function AstraChannelsPage({
 
         {!isLoading && !errorMessage && filteredChannels.length > 0 && (
           <div className="channels-grid">
-            {filteredChannels.map((channel) => (
-              <button
-                type="button"
-                className="channel-card"
-                key={channel.id}
-                onClick={() => onSelectChannel(channel)}
-              >
-                <div className="channel-logo">
-                  {channel.logo || channel.icon ? (
-                    <img
-                      src={channel.logo || channel.icon}
-                      alt={channel.name}
-                    />
-                  ) : (
-                    <span>📺</span>
-                  )}
-                </div>
+            {filteredChannels.map((channel) => {
+              const logo = getChannelLogo(channel);
 
-                <div>
-                  <h3>{channel.name}</h3>
-                  <p>EN VIVO</p>
-                </div>
-              </button>
-            ))}
+              return (
+                <button
+                  type="button"
+                  className="channel-card"
+                  key={channel.id}
+                  onClick={() => onSelectChannel(channel)}
+                >
+                  <div className="channel-logo">
+                    {logo ? <img src={logo} alt="" /> : <IconTv />}
+                  </div>
+
+                  <div className="channel-card-body">
+                    <h3>{channel.name}</h3>
+                    <span className="channel-live-tag">En vivo</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </section>

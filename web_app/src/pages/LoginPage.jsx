@@ -1,5 +1,14 @@
 import { useState } from 'react';
 import { loginRequest } from '../api/authApi';
+import logoMark from '../assets/brand/tc-play-logo.png';
+import {
+  IconUser,
+  IconLock,
+  IconEye,
+  IconEyeOff,
+  IconAlert,
+  IconTv,
+} from '../components/Icons';
 
 const BYPASS_LOGIN = import.meta.env.VITE_BYPASS_LOGIN === 'true';
 
@@ -7,6 +16,7 @@ export function LoginPage({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -55,73 +65,125 @@ export function LoginPage({ onLoginSuccess }) {
   }
 
   return (
-    <main className="login-layout login-streaming-layout">
+    <main className="login-streaming-layout">
       <section className="login-visual-panel" aria-hidden="true">
-        <div className="login-gradient-overlay" />
+        <div className="login-visual-glow" />
+        <div className="login-orbit login-orbit-1" />
+        <div className="login-orbit login-orbit-2" />
+        <div className="login-orbit login-orbit-3" />
 
-        <div className="login-floating-grid">
-          <div className="floating-card card-live">LIVE</div>
-          <div className="floating-card card-hd">HD</div>
-          <div className="floating-card card-tv">TV</div>
-          <div className="floating-card card-play">▶</div>
-          <div className="floating-card card-247">24/7</div>
-          <div className="floating-card card-tc">TC</div>
+        <div className="login-visual-top">
+          <a className="brand-mark" href="#" tabIndex={-1}>
+            <img src={logoMark} alt="" />
+            <span className="brand-mark-text">
+              <strong>TC Play</strong>
+              <span>2.0</span>
+            </span>
+          </a>
         </div>
 
         <div className="login-hero-copy">
-          <span>TC PLAY 2.0</span>
-          <h1>Televisión en vivo para clientes Telecable.</h1>
+          <span className="eyebrow-pill">
+            <IconTv /> Televisión en vivo
+          </span>
+          <h1>Tus canales, siempre contigo.</h1>
           <p>
-            Accede con tu usuario autorizado y disfruta tus canales disponibles
-            desde el navegador.
+            Ingresa con tu usuario autorizado de Telecable y disfruta de TV en
+            vivo directamente desde tu navegador, sin instalaciones.
           </p>
+        </div>
+
+        <div className="login-signal-row">
+          <div className="login-signal-item">
+            <strong>+80</strong>
+            <span>Canales disponibles</span>
+          </div>
+          <div className="login-signal-item">
+            <strong>HD</strong>
+            <span>Señal en alta calidad</span>
+          </div>
+          <div className="login-signal-item">
+            <strong>24/7</strong>
+            <span>Disponible siempre</span>
+          </div>
         </div>
       </section>
 
-      <section className="login-panel login-form-panel">
-        <form className="login-card login-glass-card" onSubmit={handleSubmit}>
+      <section className="login-form-panel">
+        <form className="login-glass-card" onSubmit={handleSubmit}>
+          <div className="login-card-brand">
+            <img src={logoMark} alt="TC Play" />
+          </div>
+
           <div className="login-card-header">
-            <span className="login-brand-pill">TC PLAY 2.0</span>
-            <h1>Inicia sesión</h1>
-            <p>Ingresa tus datos para acceder a TV en vivo.</p>
+            <h1>Bienvenido a TC Play</h1>
+            <p>Inicia sesión para disfrutar de televisión en vivo.</p>
           </div>
 
           <label className="login-field">
-            <span>Usuario</span>
-            <input
-              type="text"
-              placeholder="Ingresa tu usuario"
-              value={username}
-              autoComplete="username"
-              onChange={(event) => setUsername(event.target.value)}
-            />
+            <span className="login-field-label">Usuario</span>
+            <span className="login-input-shell">
+              <span className="login-input-icon">
+                <IconUser />
+              </span>
+              <input
+                type="text"
+                placeholder="Tu usuario"
+                value={username}
+                autoComplete="username"
+                onChange={(event) => setUsername(event.target.value)}
+              />
+            </span>
           </label>
 
           <label className="login-field">
-            <span>Contraseña</span>
-            <div className="password-field">
+            <span className="login-field-label">Contraseña</span>
+            <span className="login-input-shell">
+              <span className="login-input-icon">
+                <IconLock />
+              </span>
               <input
                 type={showPassword ? 'text' : 'password'}
-                placeholder="Ingresa tu contraseña"
+                placeholder="Tu contraseña"
                 value={password}
                 autoComplete="current-password"
                 onChange={(event) => setPassword(event.target.value)}
               />
-
               <button
                 type="button"
-                className="toggle-password-button"
+                className="login-eye-toggle"
                 onClick={() => setShowPassword((value) => !value)}
+                aria-label={
+                  showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'
+                }
               >
-                {showPassword ? 'Ocultar' : 'Ver'}
+                {showPassword ? <IconEyeOff /> : <IconEye />}
               </button>
-            </div>
+            </span>
           </label>
+
+          <div className="login-row-between">
+            <label className="login-remember">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+              />
+              Recordarme
+            </label>
+
+            <button type="button" className="login-forgot-link">
+              ¿Olvidaste tu contraseña?
+            </button>
+          </div>
 
           {errorMessage && (
             <div className="login-error-box">
-              <strong>No pudimos iniciar sesión</strong>
-              <span>{errorMessage}</span>
+              <IconAlert />
+              <div>
+                <strong>No pudimos iniciar sesión</strong>
+                <span>{errorMessage}</span>
+              </div>
             </div>
           )}
 
@@ -130,7 +192,7 @@ export function LoginPage({ onLoginSuccess }) {
             className="login-submit-button"
             disabled={isLoading}
           >
-            {isLoading ? 'Validando acceso...' : 'Acceder a TC Play'}
+            {isLoading ? 'Validando acceso...' : 'Iniciar sesión'}
           </button>
 
           <p className="login-help-text">

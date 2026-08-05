@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getLiveCategories } from '../api/liveTvApi';
+import { IconChevronLeft, IconGrid } from '../components/Icons';
 
 export function CategoriesPage({ session, onBack, onSelectCategory }) {
   const [categories, setCategories] = useState([]);
@@ -25,23 +26,29 @@ export function CategoriesPage({ session, onBack, onSelectCategory }) {
   }, [session.username, session.password]);
 
   return (
-    <main className="home-layout">
-      <header className="home-header">
-        <div>
-          <h1>Categorías</h1>
-          <p>TV en vivo - TC Play 2.0</p>
-        </div>
-
-        <button type="button" onClick={onBack}>
-          Volver
+    <main className="page">
+      <header className="page-header">
+        <button
+          type="button"
+          className="icon-btn icon-btn-lg"
+          onClick={onBack}
+          aria-label="Volver"
+        >
+          <IconChevronLeft />
         </button>
+
+        <div>
+          <span className="eyebrow-pill">TC Play 2.0</span>
+          <h1>Categorías</h1>
+          <p className="muted-text">Explora las categorías de TV en vivo.</p>
+        </div>
       </header>
 
-      <section className="categories-content">
+      <section className="panel">
         {isLoading && <p className="state-message">Cargando categorías...</p>}
 
         {!isLoading && errorMessage && (
-          <div className="state-card error-state">
+          <div className="state-card">
             <h2>No se pudieron cargar las categorías</h2>
             <p>{errorMessage}</p>
           </div>
@@ -63,9 +70,13 @@ export function CategoriesPage({ session, onBack, onSelectCategory }) {
                 key={category.id}
                 onClick={() => onSelectCategory(category)}
               >
-                <span>📡</span>
-                <h3>{category.name}</h3>
-                <p>ID: {category.id}</p>
+                <span className="category-icon">
+                  <IconGrid />
+                </span>
+                <div>
+                  <h3>{category.name}</h3>
+                  <p>ID: {category.id}</p>
+                </div>
               </button>
             ))}
           </div>

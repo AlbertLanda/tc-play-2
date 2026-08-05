@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getLiveChannels } from '../api/liveTvApi';
+import { IconChevronLeft, IconTv } from '../components/Icons';
 
 export function ChannelsPage({ session, category, onBack, onSelectChannel }) {
   const [channels, setChannels] = useState([]);
@@ -32,23 +33,29 @@ export function ChannelsPage({ session, category, onBack, onSelectChannel }) {
   }, [session.username, session.password, category]);
 
   return (
-    <main className="home-layout">
-      <header className="home-header">
-        <div>
-          <h1>{category?.name || 'Canales'}</h1>
-          <p>Canales disponibles - TC Play 2.0</p>
-        </div>
-
-        <button type="button" onClick={onBack}>
-          Volver
+    <main className="page">
+      <header className="page-header">
+        <button
+          type="button"
+          className="icon-btn icon-btn-lg"
+          onClick={onBack}
+          aria-label="Volver"
+        >
+          <IconChevronLeft />
         </button>
+
+        <div>
+          <span className="eyebrow-pill">TC Play 2.0</span>
+          <h1>{category?.name || 'Canales'}</h1>
+          <p className="muted-text">Canales disponibles en esta categoría.</p>
+        </div>
       </header>
 
-      <section className="channels-content">
+      <section className="panel">
         {isLoading && <p className="state-message">Cargando canales...</p>}
 
         {!isLoading && errorMessage && (
-          <div className="state-card error-state">
+          <div className="state-card">
             <h2>No se pudieron cargar los canales</h2>
             <p>{errorMessage}</p>
           </div>
@@ -72,16 +79,15 @@ export function ChannelsPage({ session, category, onBack, onSelectChannel }) {
               >
                 <div className="channel-logo">
                   {channel.icon ? (
-                    <img src={channel.icon} alt={channel.name} />
+                    <img src={channel.icon} alt="" />
                   ) : (
-                    <span>📺</span>
+                    <IconTv />
                   )}
                 </div>
 
-                <div>
+                <div className="channel-card-body">
                   <h3>{channel.name}</h3>
-                  <p>ID: {channel.id}</p>
-                  <p>Categoría: {channel.category_id}</p>
+                  <span className="channel-live-tag">ID {channel.id}</span>
                 </div>
               </button>
             ))}

@@ -3,6 +3,20 @@ import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
 import { getProxyStreamUrl, stopProxy } from '../api/liveTvApi';
 import { getAstraProxyUrl, stopAstraProxy } from '../api/astraApi';
+import { getChannelLogo } from '../constants/channelLogos';
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconPlay,
+  IconPause,
+  IconExpand,
+  IconCompress,
+  IconTv,
+  IconAlert,
+  IconRefresh,
+  IconSignal,
+  IconSparkles,
+} from '../components/Icons';
 
 export function PlayerPage({
   session,
@@ -32,6 +46,17 @@ export function PlayerPage({
   const [showSignalOverlay, setShowSignalOverlay] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () =>
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   function showSignalStatus(message) {
     setSignalMessage(message);
@@ -598,18 +623,24 @@ export function PlayerPage({
     }, 3000);
   }
 
+  const channelLogo = channel ? getChannelLogo(channel) || channel.icon || channel.logo : null;
+
   return (
     <main className="player-layout">
       <header className="player-header">
-        <div>
-          <span className="player-kicker">TC Play 2.0</span>
-          <h1>{channel?.name || 'Reproductor'}</h1>
-          <p>Reproducción en vivo</p>
-        </div>
-
-        <button type="button" className="player-back-button" onClick={handleBack}>
-          ← Volver
+        <button
+          type="button"
+          className="icon-btn icon-btn-lg"
+          onClick={handleBack}
+          aria-label="Volver"
+        >
+          <IconChevronLeft />
         </button>
+
+        <div className="player-header-titles">
+          <h1>{channel?.name || 'Reproductor'}</h1>
+          <span>TC Play 2.0 · Reproducción en vivo</span>
+        </div>
       </header>
 
       <section className="player-content">
@@ -644,16 +675,22 @@ export function PlayerPage({
                   showControls ? 'player-zapping-controls-visible' : ''
                 }`}
               >
-                <button type="button" onClick={handleTogglePlay}>
-                  {isPlaying ? '⏸ Pausa' : '▶ Play'}
+                <button
+                  type="button"
+                  className="play-toggle"
+                  onClick={handleTogglePlay}
+                  aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+                >
+                  {isPlaying ? <IconPause /> : <IconPlay />}
                 </button>
 
                 <button
                   type="button"
                   onClick={handlePreviousChannel}
                   disabled={!onPreviousChannel}
+                  aria-label="Canal anterior"
                 >
-                  ← Canal
+                  <IconChevronLeft />
                 </button>
 
                 <div className="channel-counter">
@@ -666,12 +703,19 @@ export function PlayerPage({
                   type="button"
                   onClick={handleNextChannel}
                   disabled={!onNextChannel}
+                  aria-label="Canal siguiente"
                 >
-                  Canal →
+                  <IconChevronRight />
                 </button>
 
-                <button type="button" onClick={handleFullscreen}>
-                  ⛶ Pantalla completa
+                <button
+                  type="button"
+                  onClick={handleFullscreen}
+                  aria-label={
+                    isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'
+                  }
+                >
+                  {isFullscreen ? <IconCompress /> : <IconExpand />}
                 </button>
               </div>
             </div>
@@ -679,44 +723,54 @@ export function PlayerPage({
             <aside className="player-info">
               <div className="player-info-header">
                 <div className="channel-logo large">
-                  {channel.icon || channel.logo ? (
-                    <img src={channel.icon || channel.logo} alt={channel.name} />
+                  {channelLogo ? (
+                    <img src={channelLogo} alt="" />
                   ) : (
-                    <span>📺</span>
+                    <IconTv />
                   )}
                 </div>
 
                 <div>
-                  <span className="live-pill">EN VIVO</span>
+                  <span className="live-pill">En vivo</span>
                   <h2>{channel.name}</h2>
                 </div>
               </div>
 
               <div className="player-meta-grid">
                 <div className="player-meta-item">
-                  <span>Estado</span>
+                  <span>
+                    <IconSignal /> Estado
+                  </span>
                   <strong>En vivo</strong>
                 </div>
 
                 <div className="player-meta-item">
-                  <span>Calidad</span>
+                  <span>
+                    <IconSparkles /> Calidad
+                  </span>
                   <strong>Automática</strong>
                 </div>
 
                 <div className="player-meta-item">
-                  <span>Señal</span>
+                  <span>
+                    <IconAlert /> Señal
+                  </span>
                   <strong>{errorMessage ? 'Revisar' : 'Disponible'}</strong>
                 </div>
               </div>
               {errorMessage ? (
                 <div className="warning-text error-warning">
-                  <p>{errorMessage}</p>
+                  <div className="warning-copy">
+                    <IconAlert />
+                    <p>{errorMessage}</p>
+                  </div>
                   <button type="button" className="retry-button" onClick={handleRetry}>
-                    Reintentar canal
+                    <IconRefresh /> Reintentar canal
                   </button>
                 </div>
               ) : (
                 <p className="warning-text">
+                  <IconSparkles />
                   La señal se ajusta automáticamente para ofrecer una mejor reproducción.
                 </p>
               )}

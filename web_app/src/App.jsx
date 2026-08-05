@@ -61,6 +61,21 @@ function App() {
     setRoute(ROUTES.player);
   }
 
+  function handleSelectChannelFromHome(channel, channelList = []) {
+    const list = channelList.length ? channelList : astraChannels;
+    const nextIndex = list.findIndex((item) => item.id === channel.id);
+
+    setAstraChannels(list);
+    setSelectedChannelIndex(nextIndex >= 0 ? nextIndex : 0);
+    setSelectedChannel({
+      ...channel,
+      isAstra: true,
+      stream_url: channel.url,
+    });
+
+    setRoute(ROUTES.player);
+  }
+
   async function handleOpenLiveTv() {
     try {
       setIsOpeningLiveTv(true);
@@ -167,6 +182,7 @@ function App() {
         session={session}
         onLogout={handleLogout}
         onGoToAstra={handleOpenLiveTv}
+        onSelectChannel={handleSelectChannelFromHome}
         isOpeningLiveTv={isOpeningLiveTv}
         homeErrorMessage={homeErrorMessage}
       />
