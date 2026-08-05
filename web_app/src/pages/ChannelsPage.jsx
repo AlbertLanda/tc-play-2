@@ -83,11 +83,11 @@ export function ChannelsPage({ session, category, onBack, onSelectChannel }) {
                   ) : (
                     <IconTv />
                   )}
+                  <span className="channel-live-tag">ID {channel.id}</span>
                 </div>
 
                 <div className="channel-card-body">
                   <h3>{channel.name}</h3>
-                  <span className="channel-live-tag">ID {channel.id}</span>
                 </div>
               </button>
             ))}

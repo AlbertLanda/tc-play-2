@@ -123,11 +123,11 @@ export function AstraChannelsPage({
                 >
                   <div className="channel-logo">
                     {logo ? <img src={logo} alt="" /> : <IconTv />}
+                    <span className="channel-live-tag">En vivo</span>
                   </div>
 
                   <div className="channel-card-body">
                     <h3>{channel.name}</h3>
-                    <span className="channel-live-tag">En vivo</span>
                   </div>
                 </button>
               );

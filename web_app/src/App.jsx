@@ -17,6 +17,30 @@ const ROUTES = {
   astraChannels: 'astraChannels',
 };
 
+const FAVORITES_STORAGE_KEY = 'tcplay_favorite_channels';
+
+function readStoredFavorites() {
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistFavorites(favorites) {
+  try {
+    window.localStorage.setItem(
+      FAVORITES_STORAGE_KEY,
+      JSON.stringify(favorites),
+    );
+  } catch {
+    // Storage unavailable (private mode, etc.) — favorites just won't
+    // survive a reload, but toggling still works for this session.
+  }
+}
+
 function App() {
   const [route, setRoute] = useState(ROUTES.login);
   const [session, setSession] = useState(null);
@@ -27,6 +51,28 @@ function App() {
   const [selectedChannelIndex, setSelectedChannelIndex] = useState(0);
   const [homeErrorMessage, setHomeErrorMessage] = useState('');
   const [isOpeningLiveTv, setIsOpeningLiveTv] = useState(false);
+  const [favoriteChannels, setFavoriteChannels] = useState(() =>
+    readStoredFavorites(),
+  );
+
+  const favoriteChannelIds = new Set(
+    favoriteChannels.map((favorite) => favorite.id),
+  );
+
+  function handleToggleFavoriteChannel(channel) {
+    if (!channel?.id) return;
+
+    setFavoriteChannels((previous) => {
+      const alreadyFavorite = previous.some((item) => item.id === channel.id);
+
+      const next = alreadyFavorite
+        ? previous.filter((item) => item.id !== channel.id)
+        : [...previous, channel];
+
+      persistFavorites(next);
+      return next;
+    });
+  }
 
   function handleLoginSuccess(sessionData) {
     setSession(sessionData);
@@ -140,7 +186,13 @@ function App() {
         onNextChannel={
           selectedChannel?.isAstra ? handleNextAstraChannel : undefined
         }
-        onBack={() => setRoute(ROUTES.home)}
+        onBack={() =>
+          setRoute(
+            selectedChannel?.isAstra ? ROUTES.astraChannels : ROUTES.channels,
+          )
+        }
+        isFavoriteChannel={favoriteChannelIds.has(selectedChannel.id)}
+        onToggleFavoriteChannel={handleToggleFavoriteChannel}
       />
     );
   }
@@ -185,6 +237,7 @@ function App() {
         onSelectChannel={handleSelectChannelFromHome}
         isOpeningLiveTv={isOpeningLiveTv}
         homeErrorMessage={homeErrorMessage}
+        favoriteChannels={favoriteChannels}
       />
     );
   }

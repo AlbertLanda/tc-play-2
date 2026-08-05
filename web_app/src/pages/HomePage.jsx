@@ -12,6 +12,7 @@ export function HomePage({
   onSelectChannel,
   isOpeningLiveTv = false,
   homeErrorMessage = '',
+  favoriteChannels = [],
 }) {
   const username = session?.user?.username || session?.username || 'Usuario';
 
@@ -38,12 +39,18 @@ export function HomePage({
     };
   }, []);
 
-  const favoriteChannels = channels.slice(0, 12);
+  const favoriteIds = new Set(favoriteChannels.map((item) => item.id));
+
+  const recommendedSource = channels.filter(
+    (channel) => !favoriteIds.has(channel.id),
+  );
   const recommendedChannels =
-    channels.length > 12 ? channels.slice(12, 24) : [...channels].reverse();
+    recommendedSource.length > 12
+      ? recommendedSource.slice(0, 12)
+      : [...recommendedSource].reverse();
 
   function handleSelectFromRail(channel) {
-    onSelectChannel(channel, channels);
+    onSelectChannel(channel, channels.length ? channels : favoriteChannels);
   }
 
   return (
@@ -121,7 +128,7 @@ export function HomePage({
         <ChannelRail
           title="Canales favoritos"
           eyebrow="Para ti"
-          channels={isLoadingChannels ? [] : favoriteChannels}
+          channels={favoriteChannels}
           onSelectChannel={handleSelectFromRail}
           onSeeAll={onGoToAstra}
         />

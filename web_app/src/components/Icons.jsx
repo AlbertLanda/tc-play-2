@@ -49,6 +49,14 @@ export function IconEyeOff(props) {
   );
 }
 
+export function IconHeart(props) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M12 20.3s-7.6-4.6-9.8-9.2C1 8.3 2.3 4.9 5.7 4.1c2-.5 4 .3 5.1 2l1.2 1.9 1.2-1.9c1.1-1.7 3.1-2.5 5.1-2 3.4.8 4.7 4.2 3.5 7-2.2 4.6-9.8 9.2-9.8 9.2Z" />
+    </svg>
+  );
+}
+
 export function IconTv(props) {
   return (
     <svg {...base} {...props}>
