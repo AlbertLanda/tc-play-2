@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import mpegts from 'mpegts.js';
-import { getProxyStreamUrl, stopProxy } from '../api/liveTvApi';
+import { getStreamUrl, getProxyStreamUrl, stopProxy } from '../api/liveTvApi';
 import { getAstraProxyUrl, stopAstraProxy } from '../api/astraApi';
 import { getChannelLogo } from '../constants/channelLogos';
 import {
@@ -105,17 +105,25 @@ export function PlayerPage({
   async function loadUrl() {
     if (channel?.isAstra && channel?.stream_url) {
       console.log('[TC Play] Stream URL Astra obtenida');
-      return channel.stream_url;
+      return {
+        url: channel.stream_url,
+        mode: 'hls',
+      };
     }
 
-    const url = await getProxyStreamUrl(
+    const directUrl = await getStreamUrl(
       session.username,
       session.password,
       channel.id,
+      'ts',
     );
 
-    console.log('[TC Play] Proxy URL Xtream obtenida');
-    return url;
+    console.log('[TC Play] Stream directo Xtream obtenido');
+
+    return {
+      url: directUrl,
+      mode: 'ts',
+    };
   }
 
   async function switchToFallback() {
@@ -143,15 +151,22 @@ export function PlayerPage({
         return;
       }
 
-      console.warn('[TC Play] Cambiando a fallback MPEG-TS...');
-      setPlayerMode('ts');
+      console.warn('[TC Play] Cambiando a proxy HLS Xtream...');
+      setPlayerMode('hls');
 
-      setErrorMessage(
-        'La señal de este canal no está disponible temporalmente. Intenta nuevamente en unos segundos.',
+      const proxyUrl = await getProxyStreamUrl(
+        session.username,
+        session.password,
+        channel.id,
       );
-      hideSignalStatus();
+
+      console.log('[TC Play] Proxy URL Xtream obtenida');
+
+      setStreamUrl(proxyUrl);
     } catch (error) {
-      setErrorMessage(getFriendlyErrorMessage(error.message || 'No se pudo activar el fallback.'));
+      setErrorMessage(
+        getFriendlyErrorMessage(error.message || 'No se pudo activar el fallback.'),
+      );
       hideSignalStatus();
     }
   }
@@ -188,13 +203,13 @@ export function PlayerPage({
         try {
           hlsRef.current.recoverMediaError();
           hlsRef.current.startLoad();
-        } catch (error) {
-          console.warn('[TC Play] No se pudo recuperar HLS automáticamente:', error);
+        } catch {
+          console.warn('[TC Play] No se pudo recuperar HLS automáticamente');
         }
       }
 
       if (
-        playerMode === 'hls' &&
+        (playerMode === 'hls' || playerMode === 'ts') &&
         video.currentTime === 0 &&
         stalledCount >= 3
       ) {
@@ -215,8 +230,10 @@ export function PlayerPage({
         mediaErrorCountRef.current = 0;
         lastTimeRef.current = 0;
 
-        const url = await loadUrl(channel?.isAstra ? 'astra' : 'm3u8');
-        setStreamUrl(url);
+        const playback = await loadUrl();
+
+        setPlayerMode(playback.mode);
+        setStreamUrl(playback.url);
       } catch (error) {
         setErrorMessage(getFriendlyErrorMessage(error.message || 'No se pudo cargar el canal.'));
       } finally {
@@ -364,8 +381,8 @@ export function PlayerPage({
 
             try {
               hls.recoverMediaError();
-            } catch (error) {
-              console.warn('[TC Play] Recuperación HLS no fatal falló:', error);
+            } catch {
+              console.warn('[TC Play] Recuperación HLS no fatal falló');
             }
 
             if (
@@ -395,8 +412,8 @@ export function PlayerPage({
               try {
                 hls.recoverMediaError();
                 hls.startLoad();
-              } catch (error) {
-                console.warn('[TC Play] Recuperación fatal HLS falló:', error);
+              } catch {
+                console.warn('[TC Play] Recuperación fatal HLS falló');
               }
 
               return;
@@ -416,8 +433,8 @@ export function PlayerPage({
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
 
-        video.play().catch((error) => {
-          console.warn('[TC Play] Autoplay bloqueado:', error);
+        video.play().catch(() => {
+          console.warn('[TC Play] Autoplay bloqueado');
         });
 
         startPlaybackMonitor();
@@ -457,11 +474,7 @@ export function PlayerPage({
             );
             return;
           }
-
-          setErrorMessage(
-            'La señal de este canal no está disponible temporalmente. Intenta nuevamente en unos segundos.',
-          );
-          hideSignalStatus();
+          switchToFallback();
         });
       } else {
         setErrorMessage('Este navegador no soporta este tipo de reproducción.');
@@ -492,8 +505,8 @@ export function PlayerPage({
       if (!channel?.isAstra && channel?.id) {
         await stopProxy(channel.id);
       }
-    } catch (error) {
-      console.warn('[TC Play] No se pudo cerrar el proxy:', error);
+    } catch {
+      console.warn('[TC Play] No se pudo cerrar el proxy');
     } finally {
       onBack();
     }
@@ -519,10 +532,10 @@ export function PlayerPage({
       mediaErrorCountRef.current = 0;
       lastTimeRef.current = 0;
 
-      setPlayerMode('hls');
+      const playback = await loadUrl();
 
-      const url = await loadUrl();
-      setStreamUrl(url);
+      setPlayerMode(playback.mode);
+      setStreamUrl(playback.url);
     } catch (error) {
       setErrorMessage(getFriendlyErrorMessage(error.message));
       hideSignalStatus();
@@ -547,8 +560,8 @@ export function PlayerPage({
 
       destroyPlayers();
       onPreviousChannel();
-    } catch (error) {
-      console.warn('[TC Play] No se pudo cambiar al canal anterior:', error);
+    } catch {
+      console.warn('[TC Play] No se pudo cambiar al canal anterior');
       onPreviousChannel();
     }
   }
@@ -569,8 +582,8 @@ export function PlayerPage({
 
       destroyPlayers();
       onNextChannel();
-    } catch (error) {
-      console.warn('[TC Play] No se pudo cambiar al siguiente canal:', error);
+    } catch {
+      console.warn('[TC Play] No se pudo cambiar al siguiente canal');
       onNextChannel();
     }
   }
@@ -587,8 +600,8 @@ export function PlayerPage({
       }
 
       await element.requestFullscreen();
-    } catch (error) {
-      console.warn('[TC Play] No se pudo activar pantalla completa:', error);
+    } catch {
+      console.warn('[TC Play] No se pudo activar pantalla completa');
     }
   }
 
@@ -606,8 +619,8 @@ export function PlayerPage({
 
       video.pause();
       setIsPlaying(false);
-    } catch (error) {
-      console.warn('[TC Play] No se pudo alternar reproducción:', error);
+    } catch {
+      console.warn('[TC Play] No se pudo alternar reproducción');
     }
   }
 
