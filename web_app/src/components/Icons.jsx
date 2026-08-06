@@ -179,6 +179,18 @@ export function IconStar(props) {
   );
 }
 
+export function IconHeart({ filled, ...props }) {
+  return (
+    <svg
+      {...base}
+      fill={filled ? 'currentColor' : 'none'}
+      {...props}
+    >
+      <path d="M12 20.2s-7.2-4.4-9.7-9.1C.6 7.7 2.1 4 5.7 3.3c2.1-.4 4 .6 6.3 3 2.3-2.4 4.2-3.4 6.3-3 3.6.7 5.1 4.4 3.4 7.8-2.5 4.7-9.7 9.1-9.7 9.1Z" />
+    </svg>
+  );
+}
+
 export function IconSparkles(props) {
   return (
     <svg {...base} {...props}>

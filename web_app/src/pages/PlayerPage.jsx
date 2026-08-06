@@ -4,6 +4,7 @@ import mpegts from 'mpegts.js';
 import { getStreamUrl, getProxyStreamUrl, stopProxy } from '../api/liveTvApi';
 import { getAstraProxyUrl, stopAstraProxy } from '../api/astraApi';
 import { getChannelLogo } from '../constants/channelLogos';
+import { isChannelFavorite, toggleFavoriteChannel } from '../utils/favorites';
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -16,6 +17,7 @@ import {
   IconRefresh,
   IconSignal,
   IconSparkles,
+  IconHeart,
 } from '../components/Icons';
 
 export function PlayerPage({
@@ -47,6 +49,16 @@ export function PlayerPage({
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+
+  useEffect(() => {
+    setIsFavorite(isChannelFavorite(channel));
+  }, [channel]);
+
+  function handleToggleFavorite() {
+    if (!channel?.id) return;
+    setIsFavorite(toggleFavoriteChannel(channel));
+  }
 
   useEffect(() => {
     function handleFullscreenChange() {
@@ -86,46 +98,61 @@ export function PlayerPage({
   }
 
   function destroyPlayers() {
-    if (stallTimerRef.current) {
-      clearInterval(stallTimerRef.current);
-      stallTimerRef.current = null;
-    }
-
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    if (tsPlayerRef.current) {
-      tsPlayerRef.current.destroy();
-      tsPlayerRef.current = null;
-    }
+  if (stallTimerRef.current) {
+    clearInterval(stallTimerRef.current);
+    stallTimerRef.current = null;
   }
 
-  async function loadUrl() {
-    if (channel?.isAstra && channel?.stream_url) {
-      console.log('[TC Play] Stream URL Astra obtenida');
-      return {
-        url: channel.stream_url,
-        mode: 'hls',
-      };
+  if (hlsRef.current) {
+    hlsRef.current.destroy();
+    hlsRef.current = null;
+  }
+
+  if (tsPlayerRef.current) {
+    tsPlayerRef.current.destroy();
+    tsPlayerRef.current = null;
+  }
+
+  const video = videoRef.current;
+
+  if (video) {
+    try {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    } catch {
+      console.warn('[TC Play] No se pudo limpiar el reproductor');
     }
+  }
+}
 
-    const directUrl = await getStreamUrl(
-      session.username,
-      session.password,
-      channel.id,
-      'ts',
-    );
+  async function loadUrl() {
 
-    console.log('[TC Play] Stream directo Xtream obtenido');
+  if (channel?.isAstra && channel?.stream_url) {
+    console.info('[TC Play] Stream Astra obtenido');
 
     return {
-      url: directUrl,
-      mode: 'ts',
+      url: channel.stream_url,
+      mode: 'hls',
     };
   }
 
+
+  // USAR SIEMPRE PROXY PARA XTREAM
+  const proxyUrl = await getProxyStreamUrl(
+    session.username,
+    session.password,
+    channel.id,
+  );
+
+  console.info('[TC Play] Proxy HLS obtenido');
+
+  return {
+    url: proxyUrl,
+    mode: 'hls',
+  };
+
+  }
   async function switchToFallback() {
     if (hasTriedTsFallbackRef.current) {
       return;
@@ -145,7 +172,7 @@ export function PlayerPage({
         setPlayerMode('astra-proxy');
 
         const proxyUrl = await getAstraProxyUrl(channel.id);
-        console.log('[TC Play] Astra proxy URL obtenida');
+        console.info('[TC Play] Proxy Astra obtenido');
 
         setStreamUrl(proxyUrl);
         return;
@@ -160,7 +187,7 @@ export function PlayerPage({
         channel.id,
       );
 
-      console.log('[TC Play] Proxy URL Xtream obtenida');
+      console.info('[TC Play] Proxy HLS obtenido');
 
       setStreamUrl(proxyUrl);
     } catch (error) {
@@ -211,11 +238,11 @@ export function PlayerPage({
       if (
         (playerMode === 'hls' || playerMode === 'ts') &&
         video.currentTime === 0 &&
-        stalledCount >= 3
+        stalledCount >= 8
       ) {
         switchToFallback();
       }
-    }, 10000);
+    }, 4000);
   }
 
   useEffect(() => {
@@ -343,14 +370,11 @@ export function PlayerPage({
         hls.attachMedia(video);
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          console.log('[TC Play] HLS manifest parsed');
+          console.info('[TC Play] Reproducción HLS iniciada');
           hideSignalStatus();
 
-          video.play().catch((error) => {
-            console.warn(
-              '[TC Play] Autoplay bloqueado. Presionar Play manualmente:',
-              error,
-            );
+          video.play().catch(() => {
+            console.warn('[TC Play] Autoplay bloqueado');
           });
 
           startPlaybackMonitor();
@@ -386,7 +410,7 @@ export function PlayerPage({
             }
 
             if (
-              mediaErrorCountRef.current >= 10 &&
+              mediaErrorCountRef.current >= 20 &&
               video.currentTime === 0
             ) {
               switchToFallback();
@@ -396,8 +420,8 @@ export function PlayerPage({
           }
 
           if (type === Hls.ErrorTypes.NETWORK_ERROR) {
-            console.warn('[TC Play] Error fatal de red. Reintentando HLS...');
-            hls.startLoad();
+            console.warn('[TC Play] Error fatal de red. Activando fallback...');
+            switchToFallback();
             return;
           }
 
@@ -456,11 +480,8 @@ export function PlayerPage({
         player.attachMediaElement(video);
         player.load();
 
-        player.play().catch((error) => {
-          console.warn(
-            '[TC Play] Autoplay TS bloqueado. Presionar Play manualmente:',
-            error,
-          );
+        player.play().catch(() => {
+          console.warn('[TC Play] Autoplay TS bloqueado');
         });
 
         startPlaybackMonitor();
@@ -496,21 +517,21 @@ export function PlayerPage({
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [streamUrl, playerMode]);
 
-  async function handleBack() {
-    try {
-      if (channel?.isAstra && channel?.id && playerMode === 'astra-proxy') {
-        await stopAstraProxy(channel.id);
-      }
-
-      if (!channel?.isAstra && channel?.id) {
-        await stopProxy(channel.id);
-      }
-    } catch {
-      console.warn('[TC Play] No se pudo cerrar el proxy');
-    } finally {
-      onBack();
+  function handleBack() {
+  try {
+    if (channel?.isAstra && channel?.id && playerMode === 'astra-proxy') {
+      stopAstraProxy(channel.id);
     }
+
+    if (!channel?.isAstra && channel?.id) {
+      stopProxy(channel.id);
+    }
+  } catch {
+    console.warn('[TC Play] No se pudo cerrar el proxy');
   }
+
+  onBack();
+}
 
   async function handleRetry() {
     try {
@@ -519,6 +540,9 @@ export function PlayerPage({
       showSignalStatus('Reintentando canal...');
 
       destroyPlayers();
+      setStreamUrl('');
+      setIsPlaying(false);
+      hideSignalStatus();
 
       if (channel?.isAstra && playerMode === 'astra-proxy') {
         await stopAstraProxy(channel.id);
@@ -581,7 +605,15 @@ export function PlayerPage({
       }
 
       destroyPlayers();
+
+      setStreamUrl('');
+      setPlayerMode('');
+      setIsPlaying(false);
+      setErrorMessage('');
+      hideSignalStatus();
+
       onNextChannel();
+
     } catch {
       console.warn('[TC Play] No se pudo cambiar al siguiente canal');
       onNextChannel();
@@ -684,8 +716,53 @@ export function PlayerPage({
               )}
 
               <div
-                className={`player-zapping-controls ${
-                  showControls ? 'player-zapping-controls-visible' : ''
+                className={`player-side-nav player-side-nav-prev ${
+                  showControls ? 'player-side-nav-visible' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  className="side-nav-btn"
+                  onClick={handlePreviousChannel}
+                  disabled={!onPreviousChannel}
+                  aria-label="Canal anterior"
+                >
+                  <IconChevronLeft />
+                </button>
+              </div>
+
+              <div
+                className={`player-side-nav player-side-nav-next ${
+                  showControls ? 'player-side-nav-visible' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  className="side-nav-btn"
+                  onClick={handleNextChannel}
+                  disabled={!onNextChannel}
+                  aria-label="Canal siguiente"
+                >
+                  <IconChevronRight />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className={`fullscreen-btn ${
+                  showControls ? 'fullscreen-btn-visible' : ''
+                }`}
+                onClick={handleFullscreen}
+                aria-label={
+                  isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'
+                }
+              >
+                {isFullscreen ? <IconCompress /> : <IconExpand />}
+              </button>
+
+              <div
+                className={`player-bottom-bar ${
+                  showControls ? 'player-bottom-bar-visible' : ''
                 }`}
               >
                 <button
@@ -697,43 +774,32 @@ export function PlayerPage({
                   {isPlaying ? <IconPause /> : <IconPlay />}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={handlePreviousChannel}
-                  disabled={!onPreviousChannel}
-                  aria-label="Canal anterior"
-                >
-                  <IconChevronLeft />
-                </button>
+                <div className="bottom-bar-status">
+                  <span className="bottom-bar-live-dot" />
+                  <span className="bottom-bar-channel-name">{channel?.name}</span>
+                </div>
 
                 <div className="channel-counter">
                   {channels.length > 0
                     ? `${currentChannelIndex + 1} / ${channels.length}`
                     : 'TV en vivo'}
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleNextChannel}
-                  disabled={!onNextChannel}
-                  aria-label="Canal siguiente"
-                >
-                  <IconChevronRight />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleFullscreen}
-                  aria-label={
-                    isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'
-                  }
-                >
-                  {isFullscreen ? <IconCompress /> : <IconExpand />}
-                </button>
               </div>
             </div>
 
             <aside className="player-info">
+              <button
+                type="button"
+                className={`player-favorite-toggle ${isFavorite ? 'is-active' : ''}`}
+                onClick={handleToggleFavorite}
+                aria-pressed={isFavorite}
+                aria-label={
+                  isFavorite ? 'Quitar de favoritos' : 'Agregar a favoritos'
+                }
+              >
+                <IconHeart filled={isFavorite} />
+              </button>
+
               <div className="player-info-header">
                 <div className="channel-logo large">
                   {channelLogo ? (

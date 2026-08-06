@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getAstraChannels } from '../api/astraApi';
 import { AccountMenu } from '../components/AccountMenu';
 import { ChannelRail } from '../components/ChannelRail';
+import { getFavoriteChannels } from '../utils/favorites';
 import logoMark from '../assets/brand/tc-play-logo.png';
 import { IconHome, IconTv, IconAlert } from '../components/Icons';
 
@@ -17,6 +18,13 @@ export function HomePage({
 
   const [channels, setChannels] = useState([]);
   const [isLoadingChannels, setIsLoadingChannels] = useState(true);
+  const [favoriteChannels, setFavoriteChannels] = useState(() =>
+    getFavoriteChannels(),
+  );
+
+  useEffect(() => {
+    setFavoriteChannels(getFavoriteChannels());
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -38,12 +46,16 @@ export function HomePage({
     };
   }, []);
 
-  const favoriteChannels = channels.slice(0, 12);
   const recommendedChannels =
-    channels.length > 12 ? channels.slice(12, 24) : [...channels].reverse();
+    channels.length > 12 ? channels.slice(0, 12) : [...channels].reverse();
 
   function handleSelectFromRail(channel) {
     onSelectChannel(channel, channels);
+  }
+
+  function handleSelectFavorite(favorite) {
+    const liveChannel = channels.find((item) => item.id === favorite.id);
+    onSelectChannel(liveChannel || favorite, channels);
   }
 
   return (
@@ -121,8 +133,8 @@ export function HomePage({
         <ChannelRail
           title="Canales favoritos"
           eyebrow="Para ti"
-          channels={isLoadingChannels ? [] : favoriteChannels}
-          onSelectChannel={handleSelectFromRail}
+          channels={favoriteChannels}
+          onSelectChannel={handleSelectFavorite}
           onSeeAll={onGoToAstra}
         />
 

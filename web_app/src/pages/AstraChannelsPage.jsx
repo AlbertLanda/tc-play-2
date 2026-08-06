@@ -110,25 +110,23 @@ export function AstraChannelsPage({
         )}
 
         {!isLoading && !errorMessage && filteredChannels.length > 0 && (
-          <div className="channels-grid">
+          <div className="rail-grid">
             {filteredChannels.map((channel) => {
               const logo = getChannelLogo(channel);
 
               return (
                 <button
                   type="button"
-                  className="channel-card"
+                  className="rail-card"
                   key={channel.id}
-                  onClick={() => onSelectChannel(channel)}
+                  onClick={() => onSelectChannel(channel, filteredChannels)}
                 >
-                  <div className="channel-logo">
+                  <div className="rail-card-thumb">
                     {logo ? <img src={logo} alt="" /> : <IconTv />}
+                    <span className="rail-card-live">En vivo</span>
                   </div>
 
-                  <div className="channel-card-body">
-                    <h3>{channel.name}</h3>
-                    <span className="channel-live-tag">En vivo</span>
-                  </div>
+                  <p className="rail-card-name">{channel.name}</p>
                 </button>
               );
             })}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LoginPage } from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import { CategoriesPage } from './pages/CategoriesPage';
@@ -27,10 +27,16 @@ function App() {
   const [selectedChannelIndex, setSelectedChannelIndex] = useState(0);
   const [homeErrorMessage, setHomeErrorMessage] = useState('');
   const [isOpeningLiveTv, setIsOpeningLiveTv] = useState(false);
+  const [playerReturnRoute, setPlayerReturnRoute] = useState(ROUTES.home);
+  
+  function navigateTo(nextRoute) {
+    window.history.pushState({ route: nextRoute }, '');
+    setRoute(nextRoute);
+  }
 
   function handleLoginSuccess(sessionData) {
     setSession(sessionData);
-    setRoute(ROUTES.home);
+    navigateTo(ROUTES.home);
   }
 
   function handleLogout() {
@@ -43,23 +49,32 @@ function App() {
   function handleSelectCategory(category) {
     setSelectedCategory(category);
     setSelectedChannel(null);
-    setRoute(ROUTES.channels);
+    navigateTo(ROUTES.channels);
   }
 
   function handleSelectChannel(channel) {
     setSelectedChannel(channel);
-    setRoute(ROUTES.player);
+    setPlayerReturnRoute(ROUTES.channels);
+    navigateTo(ROUTES.player);
   }
 
-  function handleSelectAstraChannel(channel) {
-    setSelectedChannel({
-      ...channel,
-      isAstra: true,
-      stream_url: channel.url,
-    });
+  function handleSelectAstraChannel(channel, channelList = astraChannels) {
+  const index = channelList.findIndex(
+    (item) => item.id === channel.id,
+  );
 
-    setRoute(ROUTES.player);
-  }
+  setAstraChannels(channelList);
+  setSelectedChannelIndex(index >= 0 ? index : 0);
+
+  setSelectedChannel({
+    ...channel,
+    isAstra: true,
+    stream_url: channel.url,
+  });
+
+  setPlayerReturnRoute(ROUTES.astraChannels);
+  navigateTo(ROUTES.player);
+}
 
   function handleSelectChannelFromHome(channel, channelList = []) {
     const list = channelList.length ? channelList : astraChannels;
@@ -73,7 +88,8 @@ function App() {
       stream_url: channel.url,
     });
 
-    setRoute(ROUTES.player);
+    setPlayerReturnRoute(ROUTES.home);
+    navigateTo(ROUTES.player);
   }
 
   async function handleOpenLiveTv() {
@@ -91,7 +107,7 @@ function App() {
       setAstraChannels(channels);
       setSelectedChannelIndex(0);
       setSelectedChannel(null);
-      setRoute(ROUTES.astraChannels);
+      navigateTo(ROUTES.astraChannels);
     } catch (error) {
       setHomeErrorMessage(
         error.message || 'No se pudo abrir TV en vivo. Intenta nuevamente.',
@@ -120,12 +136,45 @@ function App() {
   }
 
   function handleNextAstraChannel() {
+    console.log(
+      "Canal actual:",
+      selectedChannel?.name,
+      "Índice:",
+      selectedChannelIndex,
+      "Total:",
+      astraChannels.length,
+    );
+
     handleSelectAstraChannelByIndex(selectedChannelIndex + 1);
   }
 
   function handlePreviousAstraChannel() {
-    handleSelectAstraChannelByIndex(selectedChannelIndex - 1);
+    if (!selectedChannel || !astraChannels.length) return;
+
+    const currentIndex = astraChannels.findIndex(
+      (item) => item.id === selectedChannel.id,
+    );
+
+    handleSelectAstraChannelByIndex(currentIndex - 1);
   }
+
+  useEffect(() => {
+    window.history.replaceState({ route }, '');
+
+    function handlePopState(event) {
+      const previousRoute = event.state?.route;
+
+      if (previousRoute) {
+        setRoute(previousRoute);
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   if (route === ROUTES.player && session && selectedChannel) {
     return (
@@ -140,7 +189,7 @@ function App() {
         onNextChannel={
           selectedChannel?.isAstra ? handleNextAstraChannel : undefined
         }
-        onBack={() => setRoute(ROUTES.home)}
+        onBack={() => setRoute(playerReturnRoute)}
       />
     );
   }
