@@ -104,7 +104,7 @@ export function PlayerPage({
 
   async function loadUrl() {
     if (channel?.isAstra && channel?.stream_url) {
-      console.log('[TC Play] Stream URL Astra:', channel.stream_url);
+      console.log('[TC Play] Stream URL Astra obtenida');
       return channel.stream_url;
     }
 
@@ -114,7 +114,7 @@ export function PlayerPage({
       channel.id,
     );
 
-    console.log('[TC Play] Proxy URL Xtream:', url);
+    console.log('[TC Play] Proxy URL Xtream obtenida');
     return url;
   }
 
@@ -137,7 +137,7 @@ export function PlayerPage({
         setPlayerMode('astra-proxy');
 
         const proxyUrl = await getAstraProxyUrl(channel.id);
-        console.log('[TC Play] Astra proxy URL:', proxyUrl);
+        console.log('[TC Play] Astra proxy URL obtenida');
 
         setStreamUrl(proxyUrl);
         return;
@@ -340,7 +340,7 @@ export function PlayerPage({
         });
 
         hls.on(Hls.Events.ERROR, (_, data) => {
-          console.warn('[TC Play] HLS error:', data);
+          console.warn('[TC Play] HLS error detectado');
 
           const details = data?.details || '';
           const type = data?.type || '';
@@ -448,8 +448,8 @@ export function PlayerPage({
 
         startPlaybackMonitor();
 
-        player.on(mpegts.Events.ERROR, (type, detail) => {
-          console.warn('[TC Play] MPEG-TS error:', type, detail);
+        player.on(mpegts.Events.ERROR, () => {
+          console.warn('[TC Play] MPEG-TS error detectado');
 
           if (video.currentTime > 0) {
             console.warn(
