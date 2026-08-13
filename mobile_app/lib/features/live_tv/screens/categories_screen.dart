@@ -144,8 +144,20 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                   (c) => c.name.toLowerCase().contains(_search.toLowerCase()))
               .toList();
 
-          final width = MediaQuery.of(context).size.width;
-          final crossAxisCount = width >= 900 ? 5 : (width >= 600 ? 4 : 3);
+          final screenWidth = MediaQuery.sizeOf(context).width;
+
+          final isLandscape =
+              MediaQuery.orientationOf(context) == Orientation.landscape;
+
+          final horizontalPadding = isLandscape ? 32.0 : 20.0;
+          final spacing = isLandscape ? 12.0 : 14.0;
+
+          final availableWidth =
+              screenWidth - (horizontalPadding * 2);
+
+          final crossAxisCount = isLandscape
+              ? (availableWidth / 150).floor().clamp(3, 6)
+              : (availableWidth / 105).floor().clamp(3, 4);
 
           return RefreshIndicator(
             onRefresh: _refresh,
@@ -200,7 +212,12 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                   ),
                 ),
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  padding: EdgeInsets.fromLTRB(
+                    horizontalPadding,
+                    8,
+                    horizontalPadding,
+                    24,
+                  ),
                   sliver: filtered.isEmpty
                       ? const SliverToBoxAdapter(
                           child: Padding(
@@ -218,9 +235,9 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: crossAxisCount,
-                            mainAxisSpacing: 14,
-                            crossAxisSpacing: 14,
-                            childAspectRatio: 0.85,
+                            mainAxisSpacing: spacing,
+                            crossAxisSpacing: spacing,
+                            childAspectRatio: isLandscape ? 1.05 : 0.85,
                           ),
                           delegate: SliverChildBuilderDelegate(
                             (context, index) {

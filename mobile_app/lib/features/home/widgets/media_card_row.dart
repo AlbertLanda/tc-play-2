@@ -43,20 +43,28 @@ class MediaCardRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return const SizedBox(
-        height: 60,
-        child: Center(
-          child: Text(
-            'Nada por aquí todavía.',
-            style: TextStyle(color: AppColors.textSecondary),
-          ),
-        ),
-      );
-    }
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+
+    final effectiveWidth =
+        isLandscape ? 110.0 : cardWidth;
+
+    final effectiveHeight =
+        isLandscape ? 70.0 : cardHeight;
+        if (items.isEmpty) {
+          return const SizedBox(
+            height: 60,
+            child: Center(
+              child: Text(
+                'Nada por aquí todavía.',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+          );
+        }
 
     return SizedBox(
-      height: cardHeight + 42,
+      height: effectiveHeight + (isLandscape ? 34 : 42),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -64,8 +72,8 @@ class MediaCardRow extends StatelessWidget {
         separatorBuilder: (context, index) => const SizedBox(width: 12),
         itemBuilder: (context, index) => _MediaCard(
           item: items[index],
-          width: cardWidth,
-          height: cardHeight,
+          width: effectiveWidth,
+          height: effectiveHeight,
         ),
       ),
     );

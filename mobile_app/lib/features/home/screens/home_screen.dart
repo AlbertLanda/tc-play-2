@@ -16,6 +16,7 @@ import '../../account/screens/account_screen.dart';
 import '../../live_tv/screens/live_tv_home_screen.dart';
 import '../../live_tv/services/live_tv_service.dart';
 import '../../live_tv/services/search_cache.dart';
+import '../../notifications/screens/notifications_screen.dart';
 import '../widgets/home_menu_card.dart';
 import '../widgets/media_card_row.dart';
 import '../widgets/promo_carousel.dart';
@@ -191,13 +192,11 @@ void _reloadFavorites() {
   );
 }
 
-  void _comingSoon() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        content: const Text('Función disponible próximamente'),
+  void _openNotifications() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const NotificationsScreen(),
       ),
     );
   }
@@ -229,7 +228,8 @@ void _reloadFavorites() {
         const Spacer(),
 
         IconButton(
-          onPressed: _comingSoon,
+          onPressed: _openNotifications,
+          tooltip: 'Notificaciones',
           icon: const Icon(
             Icons.notifications_none_rounded,
             color: AppColors.textPrimary,

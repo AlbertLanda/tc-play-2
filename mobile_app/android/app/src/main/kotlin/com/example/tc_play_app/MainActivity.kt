@@ -18,6 +18,21 @@ class MainActivity : FlutterActivity() {
     // (no solo responder llamadas que vienen de Flutter).
     private var pipChannel: MethodChannel? = null
 
+    // Si el PiP nativo puede activarse en este momento. Antes
+    // onUserLeaveHint() entraba a PiP SIEMPRE que el usuario apretaba
+    // Home, sin importar qué pantalla de la app estuviera visible en ese
+    // instante (el reproductor a pantalla completa, o cualquier otra
+    // sección con el mini-reproductor propio de Flutter flotando
+    // encima). Eso hacía que Android encogiera lo que fuera que hubiera
+    // en pantalla —incluido el mini-reproductor— dentro de la ventanita
+    // de PiP, en vez de encoger solo el video del reproductor.
+    //
+    // Ahora Flutter avisa por acá (ver "setPipEnabled" más abajo) si en
+    // este momento corresponde permitir el PiP nativo: true solo cuando
+    // PlayerScreen está realmente a pantalla completa, false en
+    // cualquier otro caso. Por defecto arranca en false.
+    private var pipEnabled: Boolean = false
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -29,24 +44,16 @@ class MainActivity : FlutterActivity() {
         pipChannel?.setMethodCallHandler { call, result ->
 
             when (call.method) {
-
                 "enterPip" -> {
-
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
                         val params = PictureInPictureParams.Builder()
                             .setAspectRatio(Rational(16, 9))
                             .build()
 
                         // enterPictureInPictureMode() devuelve un boolean real
                         // (true si Android efectivamente activó la ventanita).
-                        // Antes se ignoraba ese valor y siempre se reportaba
-                        // "true" a Flutter, así que si el sistema rechazaba el
-                        // PiP, Flutter nunca se enteraba y el audio seguía
-                        // sonando de fondo sin ventanita visible.
                         val entered = enterPictureInPictureMode(params)
                         result.success(entered)
-
                     } else {
                         result.success(false)
                     }
@@ -56,17 +63,25 @@ class MainActivity : FlutterActivity() {
                     result.success(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 }
 
+                "setPipEnabled" -> {
+                    pipEnabled = call.argument<Boolean>("enabled") ?: false
+                    result.success(null)
+                }
+
                 else -> result.notImplemented()
             }
-
         }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
+        // Solo se entra a PiP automáticamente al apretar Home si Flutter
+        // marcó que corresponde (PlayerScreen a pantalla completa). Si
+        // el usuario está navegando por otra pantalla de la app con el
+        // mini-reproductor propio activo, NO se entra a PiP nativo acá:
+        // ese caso lo maneja Flutter pausando la reproducción.
+        if (pipEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9))
                 .build()

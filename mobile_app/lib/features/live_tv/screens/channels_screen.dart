@@ -135,14 +135,26 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                   (c) => c.name.toLowerCase().contains(_search.toLowerCase()))
               .toList();
 
-          final width = MediaQuery.of(context).size.width;
-          final crossAxisCount = width >= 900 ? 5 : (width >= 600 ? 4 : 3);
+          final screenWidth = MediaQuery.sizeOf(context).width;
+
+          final isLandscape =
+              MediaQuery.orientationOf(context) == Orientation.landscape;
+
+          final horizontalPadding = isLandscape ? 32.0 : 20.0;
+          final spacing = isLandscape ? 12.0 : 14.0;
+
+          final availableWidth =
+              screenWidth - (horizontalPadding * 2);
+
+          final crossAxisCount = isLandscape
+              ? (availableWidth / 150).floor().clamp(3, 6)
+              : (availableWidth / 105).floor().clamp(3, 4);
 
           return RefreshIndicator(
             onRefresh: _refresh,
             color: AppColors.primary,
             child: ListView(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(horizontalPadding),
               children: [
                 TextField(
                   controller: _searchController,
@@ -178,11 +190,11 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: filteredChannels.length,
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: crossAxisCount,
-                      mainAxisSpacing: 14,
-                      crossAxisSpacing: 14,
-                      childAspectRatio: 0.85,
-                    ),
+                    crossAxisCount: crossAxisCount,
+                    mainAxisSpacing: spacing,
+                    crossAxisSpacing: spacing,
+                    childAspectRatio: isLandscape ? 1.05 : 0.85,
+                  ),
                     itemBuilder: (context, index) {
                       final channel = filteredChannels[index];
                       return LogoTile(

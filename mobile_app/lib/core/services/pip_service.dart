@@ -1,3 +1,5 @@
+// Ruta en el proyecto: lib/core/services/pip_service.dart
+
 import 'dart:async';
 import 'dart:io';
 
@@ -41,6 +43,35 @@ class PipService {
       return result ?? false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Avisa al lado nativo si en este momento corresponde permitir que
+  /// Android entre a PiP automáticamente al apretar Home
+  /// (`onUserLeaveHint` en MainActivity).
+  ///
+  /// Esto es necesario porque `onUserLeaveHint` se dispara en el lado
+  /// nativo ANTES de que Flutter reciba cualquier aviso de ciclo de vida
+  /// (`AppLifecycleState.paused`), así que no alcanza con decidir del
+  /// lado Dart si hay que pausar o no: para cuando Dart se entera,
+  /// Android ya pudo haber encogido en la ventanita de PiP lo que sea
+  /// que estuviera en pantalla en ese instante (por ejemplo, otra
+  /// sección de la app con el mini-reproductor propio flotando encima,
+  /// en vez de solo el video).
+  ///
+  /// Se debe llamar con `true` solo mientras PlayerScreen está
+  /// realmente a pantalla completa, y con `false` en cualquier otro
+  /// caso (incluido cuando solo está activo el mini-reproductor propio
+  /// dentro de la app).
+  static Future<void> setEnabled(bool enabled) async {
+    if (!Platform.isAndroid) return;
+
+    try {
+      await _channel.invokeMethod('setPipEnabled', {'enabled': enabled});
+    } catch (_) {
+      // Si falla (por ejemplo, en versiones viejas de la app nativa sin
+      // este método todavía), no es crítico: en el peor caso queda el
+      // comportamiento anterior en ese dispositivo puntual.
     }
   }
 }

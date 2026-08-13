@@ -27,12 +27,18 @@ class LogoTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final tileColor = color ?? AppColors.primary;
 
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+
+    final logoSize = isLandscape ? 58.0 : 76.0;
+    final borderRadius = isLandscape ? 16.0 : 22.0;
+
     return Material(
       color: AppColors.card,
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(borderRadius),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(borderRadius),
         onTap: onTap,
         child: Container(
           decoration: BoxDecoration(
@@ -51,16 +57,16 @@ class LogoTile extends StatelessWidget {
               ),
             ],
           ),
-          padding: const EdgeInsets.all(12),
+          
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               SizedBox(
-                height: 76,
+                height: logoSize,
                 child: imageUrl != null && imageUrl!.isNotEmpty
                     ? Container(
-                        height: 76,
-                        width: 76,
+                        height: logoSize,
+                        width: logoSize,
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
                           color: Colors.white,

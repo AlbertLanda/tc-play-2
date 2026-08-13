@@ -111,8 +111,11 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
       ...categories.map((c) => _TabItem(id: c.id, label: c.name)),
     ];
 
+    final isLandscape =
+    MediaQuery.orientationOf(context) == Orientation.landscape;
+
     return SizedBox(
-      height: 46,
+      height: isLandscape ? 40 : 46,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -199,6 +202,21 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
           );
         }
 
+        final screenWidth = MediaQuery.sizeOf(context).width;
+
+        final isLandscape =
+            MediaQuery.orientationOf(context) == Orientation.landscape;
+
+        final horizontalPadding = isLandscape ? 32.0 : 20.0;
+        final spacing = isLandscape ? 12.0 : 18.0;
+
+        final availableWidth =
+            screenWidth - (horizontalPadding * 2);
+
+        final crossAxisCount = isLandscape
+            ? (availableWidth / 150).floor().clamp(3, 6)
+            : 3;
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -207,16 +225,16 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
               onSeeAll: () => _seeAll(category),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
               child: GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: channels.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 18,
-                  crossAxisSpacing: 18,
-                  childAspectRatio: .82,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  mainAxisSpacing: spacing,
+                  crossAxisSpacing: spacing,
+                  childAspectRatio: isLandscape ? 1.05 : .82,
                 ),
                 itemBuilder: (context, index) {
                   final channel = channels[index];

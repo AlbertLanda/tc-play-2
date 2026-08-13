@@ -1,17 +1,17 @@
+// Ruta en el proyecto: lib/features/live_tv/screens/player_screen.dart
+
 import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit_video/media_kit_video.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/pip_service.dart';
-import '../services/live_tv_service.dart';
-import '../controllers/live_tv_player_controller.dart';
+import '../../../core/services/live_playback_manager.dart';
 import '../models/recent_channel.dart';
 import '../services/recent_channel_service.dart';
 import '../models/favorite_channel.dart';
@@ -38,39 +38,26 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver {
-  final LiveTvService _service = LiveTvService();
-  final LiveTvPlayerController _playerController = LiveTvPlayerController();
+  final LivePlaybackManager _manager = LivePlaybackManager.instance;
   final FavoriteChannelService _favoriteService = FavoriteChannelService();
   final RecentChannelService _recentChannelService = RecentChannelService();
 
   bool _isFavorite = false;
 
-  Timer? _playbackWatchdog;
-  Timer? _reconnectDelayTimer;
   Timer? _hideControlsTimer;
 
-  StreamSubscription? _playingSub;
-  StreamSubscription? _errorSub;
-
-  bool _isInitializingPlayer = false;
-  bool _playerError = false;
-  bool _isReconnecting = false;
   bool _isDisposed = false;
   bool _isClosingPlayer = false;
   bool _isLandscape = false;
   bool _controlsVisible = true;
   bool _locked = false;
 
-  // Modo mini-reproductor (Picture-in-Picture): true mientras el usuario
-  // está en otra app / en el Home y solo se ve la ventanita del video.
+  // Modo mini-reproductor NATIVO (Picture-in-Picture del sistema): true
+  // mientras el usuario está en otra app / en el Home. Distinto del
+  // mini-reproductor propio dentro de la app (ver MiniPlayerOverlay),
+  // que se activa al volver de PlayerScreen sin salir de TC Play.
   bool _isInPip = PipService.isInPipMode;
   StreamSubscription<bool>? _pipModeSub;
-
-  int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts = 3;
-
-  Duration _lastPosition = Duration.zero;
-  DateTime _lastPositionChange = DateTime.now();
 
   // ---------------------------------------------------------------------
   // Volumen (deslizar en la mitad izquierda) y brillo (mitad derecha)
@@ -91,17 +78,31 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    _manager.addListener(_onManagerChanged);
+    _manager.setFullScreenOpen(true);
+
     _enterFullscreenLandscape();
 
     _checkFavorite();
-    WakelockPlus.enable();
     _saveRecentChannel();
-    _setupMediaKitListeners();
-    _loadInitialPlayer();
     _scheduleHideControls();
     _initMediaControls();
 
     _pipModeSub = PipService.pipModeStream.listen(_onPipModeChanged);
+
+    _manager.loadChannel(
+      LiveChannelInfo(
+        username: widget.username,
+        password: widget.password,
+        streamId: widget.streamId,
+        channelName: widget.channelName,
+        channelIcon: widget.channelIcon,
+      ),
+    );
+  }
+
+  void _onManagerChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onPipModeChanged(bool isInPip) {
@@ -109,8 +110,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     setState(() => _isInPip = isInPip);
 
     if (!isInPip) {
-      // Al volver de la ventanita a pantalla completa, Android puede
-      // resetear la barra de estado/navegación: la reponemos.
+      // Al volver de la ventanita nativa a pantalla completa, Android
+      // puede resetear la barra de estado/navegación: la reponemos.
       if (_isLandscape) {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       } else {
@@ -128,7 +129,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       final brightness = await ScreenBrightness().application;
       if (mounted) setState(() => _brightness = brightness);
     } catch (e) {
-      debugPrint('No se pudo leer el brillo actual: $e');
+      debugPrint('No se pudo leer el brillo actual');
     }
 
     try {
@@ -136,85 +137,20 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       final volume = await VolumeController.instance.getVolume();
       if (mounted) setState(() => _volume = volume);
     } catch (e) {
-      debugPrint('No se pudo leer el volumen actual: $e');
+      debugPrint('No se pudo leer el volumen actual');
     }
   }
 
-  void _setupMediaKitListeners() {
-    _playingSub = _playerController.player.stream.playing.listen((isPlaying) {
-      if (mounted) setState(() {});
-    });
-
-    _errorSub = _playerController.player.stream.error.listen((error) {
-      debugPrint("MEDIA KIT STREAM ERROR: no se pudo abrir el stream");
-      if (!_isReconnecting && !_isDisposed) {
-        _playerController.hasError = true;
-        _startAutomaticReconnect();
-      }
-    });
-  }
-
+  // Ya no maneja play/pause/reconexión: eso vive en LivePlaybackManager
+  // y sigue funcionando aunque esta pantalla no esté montada. Acá solo
+  // queda lo que es puramente de esta pantalla (UI del sistema).
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_isDisposed || _isClosingPlayer) return;
-
-    if (state == AppLifecycleState.resumed) {
-      if (!_playerError &&
-          !_isInitializingPlayer &&
-          !_playerController.player.state.playing) {
-        _playerController.player.play();
+    if (_isDisposed) return;
+    if (state == AppLifecycleState.resumed && !_isInPip) {
+      if (_isLandscape) {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       }
-
-      // El watchdog de salud de la reproducción se detiene al pasar a
-      // segundo plano sin PiP (ver _handleAppPaused). Lo reactivamos acá
-      // al volver a primer plano, para seguir detectando cortes reales
-      // de transmisión mientras el usuario está mirando el canal.
-      if (!_isReconnecting && !_playerError && !_isInitializingPlayer) {
-        _startPlaybackWatchdog();
-      }
-      return;
-    }
-
-    if (state == AppLifecycleState.paused) {
-      _handleAppPaused();
-      return;
-    }
-
-    if (state == AppLifecycleState.detached) {
-      _playbackWatchdog?.cancel();
-      _reconnectDelayTimer?.cancel();
-      _playerController.player.pause();
-    }
-  }
-
-  Future<void> _handleAppPaused() async {
-    await PipService.enterPictureInPicture();
-
-    // Le damos un pequeño margen para que, si Android sí activó el
-    // mini-reproductor (por ejemplo vía onUserLeaveHint nativo), el
-    // aviso onPictureInPictureModeChanged llegue a Flutter antes de
-    // decidir si pausamos.
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    if (!mounted || _isDisposed) return;
-
-    if (!PipService.isInPipMode) {
-      // El mini-reproductor no se activó (no soportado en este equipo,
-      // el sistema lo rechazó, etc.): no dejamos el audio sonando de
-      // fondo sin que el usuario vea nada. Se reanuda solo al volver
-      // a la app gracias al bloque de AppLifecycleState.resumed.
-      //
-      // IMPORTANTE: también hay que detener el watchdog de reconexión
-      // automática. Si se deja corriendo, a los pocos segundos detecta
-      // que la posición está "congelada" (justamente porque acabamos de
-      // pausar a propósito) y dispara una reconexión automática que
-      // vuelve a abrir el stream y llama a play() — eso es lo que hacía
-      // que, aunque la app quedara solo en "apps recientes" sin estar
-      // visible ni con el mini-reproductor activo, el audio del canal
-      // se volviera a escuchar solo unos segundos después.
-      _playbackWatchdog?.cancel();
-      _reconnectDelayTimer?.cancel();
-      await _playerController.player.pause();
     }
   }
 
@@ -241,7 +177,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   Future<void> _enterFullscreenLandscape() async {
     await Future.delayed(const Duration(milliseconds: 300));
-
     if (!mounted) return;
 
     _isLandscape = true;
@@ -250,14 +185,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    await SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.immersiveSticky,
-    );
-
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _restoreOrientation() async {
@@ -305,7 +235,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
 
     final height = MediaQuery.of(context).size.height;
-    // Recorrer toda la pantalla de arriba a abajo mueve el valor de 0 a 1.
     final delta = (_dragStartY! - details.globalPosition.dy) / height;
     final newValue = (_dragStartValue! + delta).clamp(0.0, 1.0);
 
@@ -343,342 +272,48 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _isDraggingLeftSide = null;
   }
 
-  // MÉTODO PARA SALIDA LIMPIA Y SEGURA
-  Future<void> _closePlayerAndExit() async {
+  // ---------------------------------------------------------------------
+  // Salida de la pantalla: "volver" ahora MINIMIZA (el canal sigue
+  // reproduciéndose en el mini-reproductor flotante), no detiene nada.
+  // Solo se detiene todo explícitamente (ver _closePlaybackAndExit).
+  // ---------------------------------------------------------------------
+  Future<void> _minimizeAndExit() async {
     if (_isClosingPlayer || _isDisposed) return;
-
     _isClosingPlayer = true;
 
-  // Cancelamos timers inmediatamente
-    _playbackWatchdog?.cancel();
-    _reconnectDelayTimer?.cancel();
     _hideControlsTimer?.cancel();
 
-    // Restauramos la orientación YA, sin esperar a la limpieza de red
-    // (detener el player, cerrar el proxy) que puede tardar. Antes esto
-    // se hacía al final, así que la pantalla anterior se veía en
-    // horizontal varios segundos hasta que esas llamadas terminaban.
+    // Restauramos la orientación ya, sin esperar nada más, para que la
+    // pantalla anterior no quede en horizontal unos segundos de más.
+    unawaited(_restoreOrientation());
+
+    _manager.minimizeToMiniPlayer();
+
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  // Cierre explícito y total (por ejemplo desde la pantalla de error):
+  // acá sí se detiene la reproducción y se cierra el proxy.
+  Future<void> _closePlaybackAndExit() async {
+    if (_isClosingPlayer || _isDisposed) return;
+    _isClosingPlayer = true;
+
+    _hideControlsTimer?.cancel();
     unawaited(_restoreOrientation());
 
     if (mounted) {
       Navigator.of(context).pop();
     }
 
-  // 1. LIMPIEZA EN SEGUNDO PLANO (ya no bloquea la salida visual)
-    try {
-      await _playerController.player.pause();
-      await _playerController.player.stop();
-    } catch (e) {
-      debugPrint('Error deteniendo player: $e');
-    }
-
-    try {
-      await _service.stopProxy(
-        streamId: widget.streamId,
-      );
-    } catch (e) {
-      debugPrint('Error cerrando proxy: $e');
-    }
-  }
-
-  Future<String> _getPlaybackUrl({required bool preferDirect}) async {
-    if (preferDirect) {
-      try {
-        final directUrl = await _service.getStreamUrl(
-          username: widget.username,
-          password: widget.password,
-          streamId: widget.streamId,
-          output: 'ts',
-        );
-
-        debugPrint('✅ DIRECT STREAM URL OBTENIDA');
-        return directUrl;
-      } catch (e) {
-        debugPrint('⚠️ No se pudo obtener stream directo. Usando proxy HLS.');
-      }
-    }
-
-    final proxyUrl = await _service.getProxyStreamUrl(
-      username: widget.username,
-      password: widget.password,
-      streamId: widget.streamId,
-    );
-
-    debugPrint('✅ PROXY HLS URL OBTENIDA');
-    return proxyUrl;
-  }
-
-  Future<void> _loadInitialPlayer() async {
-    debugPrint("===== LOAD INITIAL PLAYER =====");
-    if (_isDisposed) return;
-
-    if (mounted) {
-      setState(() {
-        _isInitializingPlayer = true;
-        _playerError = false;
-      });
-    }
-
-    try {
-      await _playerController.player.stop();
-      // Antes había una espera fija de 500ms "por las dudas" antes de
-      // siquiera pedir la URL del canal. player.stop() ya se espera
-      // (await) arriba, así que ese tiempo era puro tiempo muerto. Se
-      // deja un margen chico (no cero) solo por seguridad.
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      String streamUrl = '';
-      bool urlObtained = false;
-      int retries = 0;
-
-      // 2. Bucle de persistencia
-      while (!urlObtained && retries < _maxReconnectAttempts) {
-        try {
-          streamUrl = await _getPlaybackUrl(preferDirect: true);
-          urlObtained = true; 
-        } catch (e) {
-          if (_isTransientStartupError(e)) {
-            retries++;
-            debugPrint("⚠️ INICIO NO LISTO AÚN (${_transientErrorReason(e)}). Reintento $retries de $_maxReconnectAttempts...");
-            if (retries >= _maxReconnectAttempts) rethrow;
-            await Future.delayed(const Duration(seconds: 2));
-          } else {
-            rethrow; 
-          }
-        }
-      }
-
-      debugPrint("✅ STREAM URL OBTENIDA");
-      if (!mounted || _isDisposed) return;
-
-      await _playerController.initializePlayer(streamUrl);
-
-      if (_playerController.hasError) {
-        _showPlayerError();
-        return;
-      }
-
-      await _waitUntilVideoReady();
-      if (!mounted || _isDisposed) return;
-
-      _reconnectAttempts = 0;
-      _startPlaybackWatchdog();
-
-      if (mounted) {
-        setState(() {
-          _isInitializingPlayer = false;
-          _playerError = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('❌ ERROR FATAL PLAYER');
-      if (!mounted || _isDisposed) return;
-      _showPlayerError();
-    }
-  }
-
-  // Espera a que el player realmente termine el buffering inicial y
-  // tenga video listo para mostrar, en vez de solo esperar a que se
-  // haya enviado el comando de reproducir. Sin esto, el spinner
-  // desaparecía antes de que llegara el primer frame real, dejando un
-  // instante de pantalla negra "vacía" (sin spinner y sin canal).
-  // Tiene un tope de tiempo para no dejar el spinner pegado si el
-  // aviso de "listo" nunca llega.
-  Future<void> _waitUntilVideoReady() async {
-    if (_playerController.player.state.buffering == false) return;
-
-    final completer = Completer<void>();
-    late final StreamSubscription<bool> sub;
-
-    sub = _playerController.player.stream.buffering.listen((buffering) {
-      if (!buffering && !completer.isCompleted) {
-        completer.complete();
-      }
-    });
-
-    try {
-      await completer.future.timeout(const Duration(seconds: 8));
-    } catch (_) {
-      // Tardó demasiado en avisar: mostramos el canal igual, es mejor
-      // eso a dejar el "Cargando canal..." pegado indefinidamente.
-    } finally {
-      await sub.cancel();
-    }
-  }
-
-  // Algunos errores del backend son transitorios (el proxy/transcoder
-  // todavía está arrancando o generando los primeros segmentos HLS) y se
-  // resuelven solos si se reintenta a los pocos segundos. Los detectamos
-  // por el texto del mensaje para no tener que tocar el backend.
-  bool _isTransientStartupError(Object e) {
-    final msg = e.toString().toLowerCase();
-    return msg.contains('transcoder') ||
-        msg.contains('segmento') ||
-        msg.contains('segment') ||
-        msg.contains('hls');
-  }
-
-  String _transientErrorReason(Object e) {
-    final msg = e.toString().toLowerCase();
-    if (msg.contains('transcoder')) return 'transcoder ocupado';
-    if (msg.contains('segmento') || msg.contains('segment') || msg.contains('hls')) {
-      return 'segmentos HLS aún no listos';
-    }
-    return 'inicio no listo';
-  }
-
-  // RECONEXIÓN AUTOMÁTICA CORREGIDA
-  Future<void> _startAutomaticReconnect() async {
-    debugPrint("START AUTOMATIC RECONNECT");
-    if (_isReconnecting || _isDisposed) return;
-
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      debugPrint('MAXIMUM AUTOMATIC RECONNECT ATTEMPTS REACHED');
-      _showPlayerError();
-      return;
-    }
-
-    _isReconnecting = true;
-    _reconnectAttempts++;
-    _playbackWatchdog?.cancel();
-
-    try {
-      await _playerController.player.stop();
-      
-      // Aquí sí está bien detener el proxy porque es el mismo canal que se cayó
-      try {
-        await _service.stopProxy(streamId: widget.streamId);
-      } catch (_) {}
-      
-      await Future.delayed(const Duration(seconds: 1)); // Damos un poco más de tiempo
-      if (_isDisposed) return;
-
-      String newStreamUrl = '';
-      bool urlObtained = false;
-      int retries = 0;
-
-      while (!urlObtained && retries < _maxReconnectAttempts) {
-        try {
-          newStreamUrl = await _getPlaybackUrl(preferDirect: false);
-          urlObtained = true;
-        } catch (e) {
-          if (_isTransientStartupError(e)) {
-            retries++;
-            debugPrint("⚠️ RECONEXIÓN: ${_transientErrorReason(e)}. Reintento $retries...");
-            if (retries >= _maxReconnectAttempts) rethrow;
-            await Future.delayed(const Duration(seconds: 2));
-          } else {
-            rethrow;
-          }
-        }
-      }
-
-      if (_isDisposed) return;
-      await _playerController.initializePlayer(newStreamUrl);
-
-      if (_playerController.hasError) {
-        _handleReconnectFailure();
-        return;
-      }
-
-      await _waitUntilVideoReady();
-      if (_isDisposed) return;
-
-      _reconnectAttempts = 0;
-      _startPlaybackWatchdog();
-      if (mounted) {
-        setState(() {
-          _playerError = false;
-          // El canal ya está reproduciendo con normalidad: había quedado
-          // pegado en "Cargando canal..." porque este flag no se
-          // reseteaba aquí (solo se reseteaba en la carga inicial).
-          _isInitializingPlayer = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('AUTOMATIC RECONNECT ERROR');
-      _handleReconnectFailure();
-    } finally {
-      _isReconnecting = false;
-    }
-  }
-
-  void _startPlaybackWatchdog() {
-    _playbackWatchdog?.cancel();
-    _lastPosition = _playerController.player.state.position;
-    _lastPositionChange = DateTime.now();
-    _playbackWatchdog = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _checkPlaybackHealth(),
-    );
-  }
-
-  void _checkPlaybackHealth() {
-    if (_isDisposed || _isReconnecting) return;
-
-    if (_playerController.hasError) {
-      _startAutomaticReconnect();
-      return;
-    }
-
-    final currentPosition = _playerController.player.state.position;
-    if (currentPosition != _lastPosition) {
-      _lastPosition = currentPosition;
-      _lastPositionChange = DateTime.now();
-      return;
-    }
-
-    final frozenDuration = DateTime.now().difference(_lastPositionChange);
-    if (frozenDuration >= const Duration(seconds: 30)) {
-      debugPrint('PLAYBACK FROZEN FOR 30 SECONDS - STARTING AUTOMATIC RECOVERY');
-      _startAutomaticReconnect();
-    }
-  }
-
-  void _handleReconnectFailure() {
-    if (_isDisposed) return;
-    if (_reconnectAttempts < _maxReconnectAttempts) {
-      _reconnectDelayTimer?.cancel();
-      _reconnectDelayTimer = Timer(const Duration(seconds: 2), () {
-        if (!_isDisposed && !_isReconnecting) {
-          _startAutomaticReconnect();
-        }
-      });
-      return;
-    }
-    _showPlayerError();
-  }
-
-  void _showPlayerError() {
-    if (!mounted || _isDisposed) return;
-    setState(() {
-      _isInitializingPlayer = false;
-      _playerError = true;
-    });
-  }
-
-  Future<void> _refresh() async {
-    if (_isDisposed) return;
-    setState(() {
-      _playerError = false;
-      _isInitializingPlayer = true;
-    });
-    _reconnectAttempts = 0;
-    await _startAutomaticReconnect();
-  }
-
-  void _togglePlayPause() {
-    _playerController.player.playOrPause();
-    _scheduleHideControls();
-    setState(() {});
+    await _manager.closePlayback();
   }
 
   Future<void> _checkFavorite() async {
     final favorite = await _favoriteService.isFavorite(widget.streamId);
     if (!mounted) return;
-    setState(() {
-      _isFavorite = favorite;
-    });
+    setState(() => _isFavorite = favorite);
   }
 
   Future<void> _toggleFavorite() async {
@@ -692,24 +327,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           backgroundColor: Colors.black.withValues(alpha: 0.75),
           elevation: 0,
           margin: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           duration: const Duration(seconds: 2),
           content: const Row(
             children: [
-              Icon(
-                Icons.heart_broken_rounded,
-                color: Colors.white70,
-                size: 20,
-              ),
+              Icon(Icons.heart_broken_rounded, color: Colors.white70, size: 20),
               SizedBox(width: 10),
               Text(
                 'Canal eliminado de favoritos',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -732,24 +358,15 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           backgroundColor: Colors.black.withValues(alpha: 0.75),
           elevation: 0,
           margin: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           duration: const Duration(seconds: 2),
           content: const Row(
             children: [
-              Icon(
-                Icons.favorite_rounded,
-                color: Colors.redAccent,
-                size: 20,
-              ),
+              Icon(Icons.favorite_rounded, color: Colors.redAccent, size: 20),
               SizedBox(width: 10),
               Text(
                 'Canal agregado a favoritos',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -783,31 +400,24 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   @override
   void dispose() {
     _isDisposed = true;
-    _playingSub?.cancel();
-    _errorSub?.cancel();
-    _playbackWatchdog?.cancel();
-    _reconnectDelayTimer?.cancel();
     _hideControlsTimer?.cancel();
     _volumeHideTimer?.cancel();
     _brightnessHideTimer?.cancel();
     _pipModeSub?.cancel();
-    WakelockPlus.disable();
+    _manager.removeListener(_onManagerChanged);
 
-    // Devolvemos el brillo del dispositivo a su valor original al salir.
+    // Devolvemos el brillo del dispositivo a su valor original al salir
+    // de esta pantalla (el gesto de brillo es propio de PlayerScreen).
     ScreenBrightness().resetApplicationScreenBrightness();
 
-    _playerController.dispose();
-
     if (!_isClosingPlayer) {
-      // Salida "no limpia": el sistema cerró la app o el mini-reproductor
-      // (X del PiP, quitar la app de recientes, Android matando la
-      // Activity) en vez de usar el botón de volver. El reproductor es
-      // una instancia global compartida, así que si no se detiene aquí
-      // explícitamente sigue sonando con lo que ya tenía en buffer
-      // aunque la pantalla ya no exista.
-      unawaited(_playerController.player.pause());
-      unawaited(_playerController.player.stop());
-      unawaited(_service.stopProxy(streamId: widget.streamId));
+      // Salida "no limpia": el sistema cerró/recreó esta pantalla sin
+      // pasar por el botón de volver (por ejemplo, Android recicló la
+      // ruta). Minimizamos al mini-reproductor en vez de dejar el
+      // estado indefinido — el canal sigue vivo en LivePlaybackManager
+      // de cualquier forma, ya que es un singleton independiente de
+      // esta pantalla.
+      _manager.minimizeToMiniPlayer();
       unawaited(_restoreOrientation());
     }
 
@@ -818,11 +428,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false, 
+      canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-
-        await _closePlayerAndExit();
+        await _minimizeAndExit();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -834,7 +443,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           onVerticalDragEnd: (_locked || _isInPip) ? null : _handleVerticalDragEnd,
           child: Stack(
             children: [
-              // En modo mini-reproductor solo se ve el video, sin overlays.
+              // En PiP nativo solo se ve el video, sin overlays.
               Positioned.fill(child: _buildPlayerContent()),
               if (!_isInPip) ...[
                 if (_controlsVisible) ...[
@@ -853,9 +462,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                   value: _volume,
                   icon: _volume <= 0
                       ? Icons.volume_off_rounded
-                      : (_volume < 0.5
-                          ? Icons.volume_down_rounded
-                          : Icons.volume_up_rounded),
+                      : (_volume < 0.5 ? Icons.volume_down_rounded : Icons.volume_up_rounded),
                 ),
                 _buildVerticalIndicator(
                   alignment: Alignment.centerRight,
@@ -874,27 +481,37 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 
   Widget _buildPlayerContent() {
+    final status = _manager.status;
+
     return Stack(
       children: [
         Positioned.fill(
           child: Video(
-            controller: _playerController.videoController,
+            controller: _manager.videoController,
             controls: NoVideoControls,
+            // Por defecto el Video widget usa BoxFit.contain, que
+            // respeta la proporción original del stream y deja barras
+            // negras arriba/abajo o a los costados cuando esa
+            // proporción no coincide exacto con la pantalla del
+            // celular. En pantalla completa queremos que ocupe todo el
+            // espacio disponible, recortando el sobrante si hace falta
+            // en vez de dejar barras.
+            fit: BoxFit.cover,
           ),
         ),
 
-        if (_isInitializingPlayer)
-          const Center(
+        if (status == PlaybackStatus.loading || status == PlaybackStatus.reconnecting)
+          Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircularProgressIndicator(
-                  color: AppColors.primary,
-                ),
-                SizedBox(height: 14),
+                const CircularProgressIndicator(color: AppColors.primary),
+                const SizedBox(height: 14),
                 Text(
-                  'Cargando canal...',
-                  style: TextStyle(
+                  status == PlaybackStatus.reconnecting
+                      ? 'Reconectando...'
+                      : 'Cargando canal...',
+                  style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -904,16 +521,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             ),
           ),
 
-        if (_playerError)
+        if (status == PlaybackStatus.error)
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(
-                  Icons.error_outline,
-                  color: AppColors.error,
-                  size: 50,
-                ),
+                const Icon(Icons.error_outline, color: AppColors.error, size: 50),
                 const SizedBox(height: 16),
                 const Text(
                   'No se pudo reproducir este canal.',
@@ -924,13 +537,13 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _refresh,
+                      onPressed: _manager.refresh,
                       icon: const Icon(Icons.refresh),
                       label: const Text('Reintentar'),
                     ),
                     const SizedBox(width: 12),
                     TextButton.icon(
-                      onPressed: _closePlayerAndExit,
+                      onPressed: _closePlaybackAndExit,
                       icon: const Icon(Icons.arrow_back),
                       label: const Text('Volver'),
                     ),
@@ -944,6 +557,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 
   Widget _buildTopOverlay() {
+    final castEnabled = _manager.castAvailable;
+    final tvEnabled = _manager.tvChannelSwitcherAvailable;
+    final moreEnabled = _manager.moreOptionsAvailable;
+
     return Container(
       padding: EdgeInsets.fromLTRB(4, _isLandscape ? 6 : 6, 8, 16),
       decoration: BoxDecoration(
@@ -958,7 +575,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         child: Row(
           children: [
             IconButton(
-              onPressed: _closePlayerAndExit,
+              onPressed: _minimizeAndExit,
               icon: const Icon(
                 Icons.arrow_back_ios_new_rounded,
                 color: AppColors.textPrimary,
@@ -987,24 +604,27 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 ),
               ),
             ),
-            IconButton(
-              onPressed: _comingSoon,
-              icon: const Icon(Icons.cast_connected_rounded, color: AppColors.textPrimary, size: 20),
-            ),
+            // Cast solo se muestra si hay una integración real detrás.
+            // Mostrar un ícono de cast "activo" que en realidad no
+            // conecta a nada confunde más de lo que ayuda.
+            if (castEnabled)
+              IconButton(
+                onPressed: _comingSoon,
+                icon: const Icon(Icons.cast_connected_rounded, color: AppColors.textPrimary, size: 20),
+              ),
             IconButton(
               onPressed: _toggleFavorite,
               icon: Icon(
-                _isFavorite
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded,
+                _isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                 color: Colors.redAccent,
                 size: 22,
               ),
             ),
-            IconButton(
-              onPressed: _comingSoon,
-              icon: const Icon(Icons.tv_rounded, color: AppColors.textPrimary, size: 20),
-            ),
+            if (tvEnabled)
+              IconButton(
+                onPressed: _comingSoon,
+                icon: const Icon(Icons.tv_rounded, color: AppColors.textPrimary, size: 20),
+              ),
             IconButton(
               onPressed: _toggleOrientation,
               icon: Icon(
@@ -1012,10 +632,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 color: AppColors.textPrimary, size: 22,
               ),
             ),
-            IconButton(
-              onPressed: _comingSoon,
-              icon: const Icon(Icons.more_vert_rounded, color: AppColors.textPrimary, size: 20),
-            ),
+            if (moreEnabled)
+              IconButton(
+                onPressed: _comingSoon,
+                icon: const Icon(Icons.more_vert_rounded, color: AppColors.textPrimary, size: 20),
+              ),
           ],
         ),
       ),
@@ -1023,28 +644,32 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 
   Widget _buildCenterControls() {
-  if (_isInitializingPlayer || _playerError) {
-    return const SizedBox.shrink();
+    final status = _manager.status;
+    if (status == PlaybackStatus.loading ||
+        status == PlaybackStatus.reconnecting ||
+        status == PlaybackStatus.error) {
+      return const SizedBox.shrink();
+    }
+
+    final isPlaying = _manager.isPlaying;
+
+    return _circleIconButton(
+      icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+      size: 34,
+      padding: 14,
+      onTap: () {
+        _manager.togglePlayPause();
+        _scheduleHideControls();
+      },
+    );
   }
 
-  final isPlaying = _playerController.player.state.playing;
-
-  return _circleIconButton(
-    icon: isPlaying
-        ? Icons.pause_rounded
-        : Icons.play_arrow_rounded,
-    size: 34,
-    padding: 14,
-    onTap: _togglePlayPause,
-  );
-}
-
-Widget _circleIconButton({
-  required IconData icon,
-  required VoidCallback onTap,
-  double size = 26,
-  double padding = 10,
-}) {
+  Widget _circleIconButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    double size = 26,
+    double padding = 10,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1077,12 +702,8 @@ Widget _circleIconButton({
   }
 
   // ---------------------------------------------------------------------
-  // Barra vertical de volumen / brillo — aparece al deslizar, del lado
-  // correspondiente, y se oculta sola. El tamaño y el margen se calculan
-  // según el tamaño real de la pantalla para que se vea bien en cualquier
-  // equipo (teléfono chico, grande, tablet) y en landscape/portrait.
-  // Diseño tipo "glass" con degradado de marca y porcentaje, en vez de
-  // la barra plana anterior.
+  // Barra vertical de volumen / brillo — sin cambios respecto al
+  // original salvo por vivir en esta versión reorganizada del archivo.
   // ---------------------------------------------------------------------
   Widget _buildVerticalIndicator({
     required Alignment alignment,
@@ -1093,13 +714,9 @@ Widget _circleIconButton({
     final screenSize = MediaQuery.of(context).size;
     final safePadding = MediaQuery.of(context).padding;
 
-    // Alto proporcional a la pantalla, con tope mínimo y máximo para que
-    // no se vea gigante en tablets ni diminuta en teléfonos chicos.
     final barHeight = (screenSize.height * 0.36).clamp(140.0, 235.0);
     final barWidth = (screenSize.width * 0.05).clamp(36.0, 48.0);
 
-    // Separación del borde: respeta el notch/cámara del lado
-    // correspondiente (importante en landscape) más un margen mínimo.
     final edgeInset =
         alignment == Alignment.centerLeft ? safePadding.left : safePadding.right;
     final baseMargin = (screenSize.width * 0.035).clamp(16.0, 28.0);
@@ -1136,9 +753,7 @@ Widget _circleIconButton({
                       ],
                     ),
                     borderRadius: BorderRadius.circular(barWidth / 2),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: .14),
-                    ),
+                    border: Border.all(color: Colors.white.withValues(alpha: .14)),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: .4),
@@ -1175,10 +790,7 @@ Widget _circleIconButton({
                                     gradient: LinearGradient(
                                       begin: Alignment.bottomCenter,
                                       end: Alignment.topCenter,
-                                      colors: [
-                                        AppColors.accent,
-                                        AppColors.primary,
-                                      ],
+                                      colors: [AppColors.accent, AppColors.primary],
                                     ),
                                   ),
                                 ),
@@ -1188,11 +800,7 @@ Widget _circleIconButton({
                         ),
                       ),
                       SizedBox(height: barHeight * 0.045),
-                      Icon(
-                        icon,
-                        color: AppColors.textPrimary,
-                        size: barWidth * 0.4,
-                      ),
+                      Icon(icon, color: AppColors.textPrimary, size: barWidth * 0.4),
                     ],
                   ),
                 ),

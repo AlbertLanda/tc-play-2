@@ -68,6 +68,8 @@ class AppBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLandscape =
+    MediaQuery.orientationOf(context) == Orientation.landscape;
     return BottomNavigationBar(
       currentIndex: currentIndex,
       onTap: (index) => _onTap(context, index),
@@ -76,8 +78,14 @@ class AppBottomNav extends StatelessWidget {
       unselectedItemColor: AppColors.textSecondary,
       type: BottomNavigationBarType.fixed,
       showUnselectedLabels: true,
-      selectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-      unselectedLabelStyle: const TextStyle(fontSize: 11),
+      selectedLabelStyle: TextStyle(
+        fontSize: isLandscape ? 10 : 11,
+        fontWeight: FontWeight.bold,
+      ),
+      unselectedLabelStyle: TextStyle(
+      fontSize: isLandscape ? 10 : 11,
+      ),
+      iconSize: isLandscape ? 20 : 24,
       elevation: 0,
       items: _items,
     );
