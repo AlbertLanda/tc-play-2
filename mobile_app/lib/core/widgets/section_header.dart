@@ -36,15 +36,25 @@ class AppSectionHeader extends StatelessWidget {
           ],
           const Spacer(),
           if (onSeeAll != null)
-            GestureDetector(
-              onTap: onSeeAll,
-              child: const Row(
-                children: [
-                  Text('Ver todas',
-                      style: TextStyle(color: AppColors.accent, fontSize: 13)),
-                  Icon(Icons.chevron_right_rounded,
-                      color: AppColors.accent, size: 18),
-                ],
+            // InkWell en vez de GestureDetector: mismo aspecto, pero
+            // navegable y activable con Enter/OK del control remoto.
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: onSeeAll,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+                  child: Row(
+                    children: [
+                      Text('Ver todas',
+                          style:
+                              TextStyle(color: AppColors.accent, fontSize: 13)),
+                      Icon(Icons.chevron_right_rounded,
+                          color: AppColors.accent, size: 18),
+                    ],
+                  ),
+                ),
               ),
             ),
         ],

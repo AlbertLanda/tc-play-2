@@ -65,9 +65,15 @@ class _MiniPlayerOverlayState extends State<MiniPlayerOverlay> {
             onPanUpdate: (details) {
               setState(() => _offset = _offset! + details.delta);
             },
-            onTap: () => _reopenFullScreen(channel),
+            // El onTap se movió al InkWell de adentro para que también
+            // se pueda "abrir" el mini-reproductor con Enter/OK del
+            // control remoto (GestureDetector no reacciona a teclado).
             child: Material(
               color: Colors.transparent,
+              child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _reopenFullScreen(channel),
+              focusColor: Colors.white.withValues(alpha: .2),
               child: Container(
                 width: _boxSize.width,
                 height: _boxSize.height,
@@ -126,6 +132,7 @@ class _MiniPlayerOverlayState extends State<MiniPlayerOverlay> {
                   ],
                 ),
               ),
+              ),
             ),
           ),
         );
@@ -134,18 +141,27 @@ class _MiniPlayerOverlayState extends State<MiniPlayerOverlay> {
   }
 
   Widget _closeButton(LivePlaybackManager manager) {
-    return GestureDetector(
-      // Cierre explícito: acá sí se detiene la reproducción por
-      // completo (a diferencia de tocar el mini-reproductor, que
-      // reabre pantalla completa manteniendo el mismo canal sonando).
-      onTap: () => manager.closePlayback(),
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: const BoxDecoration(
-          color: Colors.black54,
-          shape: BoxShape.circle,
+    // InkWell en vez de GestureDetector: mismo aspecto, pero también
+    // alcanzable y activable con el control remoto.
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        // Cierre explícito: acá sí se detiene la reproducción por
+        // completo (a diferencia de tocar el mini-reproductor, que
+        // reabre pantalla completa manteniendo el mismo canal sonando).
+        onTap: () => manager.closePlayback(),
+        focusColor: Colors.white.withValues(alpha: .3),
+        child: Container(
+          padding: const EdgeInsets.all(3),
+          decoration: const BoxDecoration(
+            color: Colors.black54,
+            shape: BoxShape.circle,
+          ),
+          child:
+              const Icon(Icons.close_rounded, color: Colors.white, size: 14),
         ),
-        child: const Icon(Icons.close_rounded, color: Colors.white, size: 14),
       ),
     );
   }

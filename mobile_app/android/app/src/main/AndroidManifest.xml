@@ -2,6 +2,21 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Requerido/recomendado para Android TV: por defecto Android
+         asume que toda app necesita pantalla táctil. Al declarar
+         estas features como NO requeridas, le decimos explícitamente
+         al sistema (y a Google Play) que la app funciona sin
+         touchscreen, controlada por D-pad/control remoto. Sin esto,
+         Play Store puede directamente ocultar la app en dispositivos
+         TV, y algunos launchers de TV son más estrictos con el foco
+         por teclado si no está esta declaración. -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+
     <application
         android:label=" TC Play V 2.0"
         android:name="${applicationName}"
@@ -30,6 +45,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

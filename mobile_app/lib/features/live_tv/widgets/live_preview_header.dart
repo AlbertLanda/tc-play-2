@@ -88,26 +88,29 @@ class LivePreviewHeader extends StatelessWidget {
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                 ),
                 const Spacer(),
-                GestureDetector(
-                  onTap: onChat,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: AppColors.liveRed,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Chatea ahora',
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold)),
-                        SizedBox(width: 4),
-                        Icon(Icons.circle, color: Colors.white, size: 6),
-                      ],
+                // InkWell en vez de GestureDetector: mismo aspecto, pero
+                // alcanzable y activable con el control remoto.
+                Material(
+                  color: AppColors.liveRed,
+                  borderRadius: BorderRadius.circular(20),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: onChat,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Chatea ahora',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold)),
+                          SizedBox(width: 4),
+                          Icon(Icons.circle, color: Colors.white, size: 6),
+                        ],
+                      ),
                     ),
                   ),
                 ),

@@ -172,7 +172,8 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
   // ---------------------------------------------------------------------
   // Grilla de canales de una categoría (sección)
   // ---------------------------------------------------------------------
-  Widget _buildChannelSection(LiveCategory category) {
+  Widget _buildChannelSection(LiveCategory category,
+      {bool isFirstSection = false}) {
     return FutureBuilder<List<LiveChannel>>(
       future: _channelsFor(category.id),
       builder: (context, snapshot) {
@@ -261,6 +262,12 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
                     imageUrl: channel.icon,
                     icon: Icons.live_tv_rounded,
                     color: AppColors.primary,
+                    // Foco inicial en TV: solo en la primera tarjeta de
+                    // la primera sección, para que el control remoto
+                    // tenga desde dónde empezar a moverse al entrar a
+                    // esta pantalla (sin duplicar autofocus en cada
+                    // sección repetida de la lista).
+                    autofocus: isTv && isFirstSection && index == 0,
                     onTap: () => _openChannel(channel),
                   );
                 },
@@ -406,10 +413,16 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
                 //const AdSlot(label: 'AD_SLOT_LIVE_TV', height: 80),
 
                 if (_selectedTabId == 'all')
-                  ...sectionCategories.map(_buildChannelSection)
+                  ...sectionCategories.asMap().entries.map(
+                        (entry) => _buildChannelSection(
+                          entry.value,
+                          isFirstSection: entry.key == 0,
+                        ),
+                      )
                 else
                   _buildChannelSection(
                     categories.firstWhere((c) => c.id == _selectedTabId),
+                    isFirstSection: true,
                   ),
               ],
             );

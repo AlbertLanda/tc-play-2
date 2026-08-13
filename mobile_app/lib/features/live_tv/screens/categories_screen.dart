@@ -258,6 +258,10 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                 subtitle: 'ID: ${category.id}',
                                 icon: icon,
                                 color: color,
+                                // Foco inicial en TV: sin esto el control
+                                // remoto no tiene desde dónde empezar a
+                                // moverse al entrar a esta pantalla.
+                                autofocus: isTv && index == 0,
                                 onTap: () {
                                   Navigator.push(
                                     context,

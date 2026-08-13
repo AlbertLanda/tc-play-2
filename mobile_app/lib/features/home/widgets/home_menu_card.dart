@@ -79,7 +79,7 @@ class _LogoTileState extends State<LogoTile> {
             child: Container(
               decoration: BoxDecoration(
                 color: AppColors.card,
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(borderRadius),
                 border: Border.all(
                   color: tileColor.withValues(alpha: .12),
                   width: 1,

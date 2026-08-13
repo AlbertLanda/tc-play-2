@@ -436,13 +436,31 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: (_locked || _isInPip) ? null : _toggleControls,
-          onVerticalDragStart: (_locked || _isInPip) ? null : _handleVerticalDragStart,
-          onVerticalDragUpdate: (_locked || _isInPip) ? null : _handleVerticalDragUpdate,
-          onVerticalDragEnd: (_locked || _isInPip) ? null : _handleVerticalDragEnd,
-          child: Stack(
+        body: Focus(
+          // En TV los controles se ocultan solos tras unos segundos, y
+          // sin esto no había forma de volver a mostrarlos con el
+          // control remoto (el GestureDetector de abajo solo reacciona
+          // a toques de pantalla táctil). Cualquier tecla del control
+          // remoto (flechas, OK, atrás) los vuelve a mostrar; si ya
+          // estaban visibles, dejamos pasar la tecla normalmente para
+          // que la navegación entre botones siga funcionando.
+          onKeyEvent: (node, event) {
+            if (_locked || _isInPip) return KeyEventResult.ignored;
+            if (event is! KeyDownEvent) return KeyEventResult.ignored;
+            if (!_controlsVisible) {
+              setState(() => _controlsVisible = true);
+              _scheduleHideControls();
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: (_locked || _isInPip) ? null : _toggleControls,
+            onVerticalDragStart: (_locked || _isInPip) ? null : _handleVerticalDragStart,
+            onVerticalDragUpdate: (_locked || _isInPip) ? null : _handleVerticalDragUpdate,
+            onVerticalDragEnd: (_locked || _isInPip) ? null : _handleVerticalDragEnd,
+            child: Stack(
             children: [
               // En PiP nativo solo se ve el video, sin overlays.
               Positioned.fill(child: _buildPlayerContent()),
@@ -475,6 +493,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 ),
               ],
             ],
+            ),
           ),
         ),
       ),

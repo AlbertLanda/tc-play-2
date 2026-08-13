@@ -209,6 +209,10 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                         imageUrl: channel.icon,
                         icon: Icons.live_tv_rounded,
                         color: AppColors.primary,
+                        // Foco inicial en TV: sin esto el control
+                        // remoto no tiene desde dónde empezar a
+                        // moverse al entrar a esta pantalla.
+                        autofocus: isTv && index == 0,
                         onTap: () async {
                           // Si ya estamos navegando, ignoramos clics adicionales
                           if (_isNavigating) return;
