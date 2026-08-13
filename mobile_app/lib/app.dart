@@ -34,7 +34,7 @@ class TCPlayApp extends StatelessWidget {
         return PipOverlayRoot(
           child: Stack(
             children: [
-              ?child,
+              child ?? const SizedBox.shrink(),
               const MiniPlayerOverlay(),
             ],
           ),
