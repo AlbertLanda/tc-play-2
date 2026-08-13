@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/tv_utils.dart';
 import '../../home/widgets/home_menu_card.dart';
 import '../models/live_channel.dart';
 import '../services/live_tv_service.dart';
@@ -139,16 +140,20 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
 
           final isLandscape =
               MediaQuery.orientationOf(context) == Orientation.landscape;
+          final isTv = TvUtils.isTv(context);
 
-          final horizontalPadding = isLandscape ? 32.0 : 20.0;
-          final spacing = isLandscape ? 12.0 : 14.0;
+          final horizontalPadding = isTv ? 40.0 : (isLandscape ? 32.0 : 20.0);
+          final spacing = isTv ? 18.0 : (isLandscape ? 12.0 : 14.0);
 
           final availableWidth =
               screenWidth - (horizontalPadding * 2);
 
-          final crossAxisCount = isLandscape
-              ? (availableWidth / 150).floor().clamp(3, 6)
-              : (availableWidth / 105).floor().clamp(3, 4);
+          final crossAxisCount = TvUtils.gridCrossAxisCount(
+            context: context,
+            availableWidth: availableWidth,
+            tileWidth: isLandscape || isTv ? 150 : 105,
+            mobileMax: isLandscape ? 6 : 4,
+          );
 
           return RefreshIndicator(
             onRefresh: _refresh,
@@ -193,7 +198,8 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
                     crossAxisCount: crossAxisCount,
                     mainAxisSpacing: spacing,
                     crossAxisSpacing: spacing,
-                    childAspectRatio: isLandscape ? 1.05 : 0.85,
+                    childAspectRatio:
+                        isTv ? 1.0 : (isLandscape ? 1.05 : 0.85),
                   ),
                     itemBuilder: (context, index) {
                       final channel = filteredChannels[index];

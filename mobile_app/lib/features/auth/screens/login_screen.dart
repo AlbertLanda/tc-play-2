@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/tv_utils.dart';
 import '../../../core/widgets/app_logo.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../home/screens/home_screen.dart';
@@ -129,14 +130,20 @@ class _OptionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isTv = TvUtils.isTv(context);
+
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: onTap,
+        focusColor: AppColors.accent.withValues(alpha: .18),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          padding: EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: isTv ? 18 : 14,
+          ),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: .05),
             borderRadius: BorderRadius.circular(8),
@@ -144,21 +151,21 @@ class _OptionButton extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(icon, size: 18, color: AppColors.accent),
+              Icon(icon, size: isTv ? 22 : 18, color: AppColors.accent),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   label,
                   style: GoogleFonts.manrope(
                     color: AppColors.textPrimary,
-                    fontSize: 14,
+                    fontSize: isTv ? 16 : 14,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
               Icon(
                 Icons.chevron_right_rounded,
-                size: 18,
+                size: isTv ? 22 : 18,
                 color: AppColors.textSecondary,
               ),
             ],
@@ -249,11 +256,13 @@ class _RecoverPasswordDialogState extends State<_RecoverPasswordDialog> {
     final showContactStep = !showSedeStep && _selectedContact == null;
     final showMessageStep = _selectedContact != null;
 
+    final isTv = TvUtils.isTv(context);
+
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24),
       child: Container(
-        width: 380,
+        width: isTv ? 480 : 380,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: AppColors.surface,
@@ -594,24 +603,25 @@ class _LoginScreenState extends State<LoginScreen> {
     required String hint,
     required IconData icon,
     Widget? suffixIcon,
+    bool isTv = false,
   }) {
     return InputDecoration(
       hintText: hint,
       hintStyle: GoogleFonts.manrope(
         color: AppColors.textSecondary.withValues(alpha: .6),
-        fontSize: 15,
+        fontSize: isTv ? 17 : 15,
       ),
       prefixIcon: Icon(
         icon,
         color: AppColors.textSecondary,
-        size: 20,
+        size: isTv ? 24 : 20,
       ),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: Colors.white.withValues(alpha: .05),
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 16,
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: isTv ? 22 : 18,
+        vertical: isTv ? 20 : 16,
       ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
@@ -627,9 +637,9 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: const BorderSide(
+        borderSide: BorderSide(
           color: AppColors.accent,
-          width: 1.4,
+          width: isTv ? 2.4 : 1.4,
         ),
       ),
     );
@@ -662,11 +672,13 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildFormCard(double cardWidth) {
+    final isTv = TvUtils.isTv(context);
+
     return Container(
       width: cardWidth,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 32,
-        vertical: 40,
+      padding: EdgeInsets.symmetric(
+        horizontal: isTv ? 44 : 32,
+        vertical: isTv ? 48 : 40,
       ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: .55),
@@ -688,7 +700,7 @@ class _LoginScreenState extends State<LoginScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Center(
-            child: AppLogo(size: 84),
+            child: AppLogo(size: isTv ? 108 : 84),
           ),
 
           const SizedBox(height: 24),
@@ -698,7 +710,7 @@ class _LoginScreenState extends State<LoginScreen> {
             textAlign: TextAlign.center,
             style: GoogleFonts.manrope(
               color: AppColors.textPrimary,
-              fontSize: 24,
+              fontSize: isTv ? 28 : 24,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -711,7 +723,7 @@ class _LoginScreenState extends State<LoginScreen> {
             textAlign: TextAlign.center,
             style: GoogleFonts.manrope(
               color: AppColors.textSecondary,
-              fontSize: 14,
+              fontSize: isTv ? 16 : 14,
               height: 1.5,
             ),
           ),
@@ -722,7 +734,7 @@ class _LoginScreenState extends State<LoginScreen> {
             'Usuario',
             style: GoogleFonts.manrope(
               color: AppColors.textPrimary,
-              fontSize: 13,
+              fontSize: isTv ? 15 : 13,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -732,9 +744,10 @@ class _LoginScreenState extends State<LoginScreen> {
           TextField(
             controller: _usernameController,
             textInputAction: TextInputAction.next,
+            autofocus: isTv,
             style: GoogleFonts.manrope(
               color: Colors.white,
-              fontSize: 15,
+              fontSize: isTv ? 17 : 15,
             ),
             onSubmitted: (_) {
               FocusScope.of(context).requestFocus(
@@ -744,16 +757,17 @@ class _LoginScreenState extends State<LoginScreen> {
             decoration: _fieldDecoration(
               hint: 'Tu usuario',
               icon: Icons.alternate_email_rounded,
+              isTv: isTv,
             ),
           ),
 
-          const SizedBox(height: 18),
+          SizedBox(height: isTv ? 22 : 18),
 
           Text(
             'Contraseña',
             style: GoogleFonts.manrope(
               color: AppColors.textPrimary,
-              fontSize: 13,
+              fontSize: isTv ? 15 : 13,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -767,19 +781,20 @@ class _LoginScreenState extends State<LoginScreen> {
             obscureText: _obscurePassword,
             style: GoogleFonts.manrope(
               color: Colors.white,
-              fontSize: 15,
+              fontSize: isTv ? 17 : 15,
             ),
             onSubmitted: (_) => _login(),
             decoration: _fieldDecoration(
               hint: '••••••••',
               icon: Icons.lock_outline_rounded,
+              isTv: isTv,
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscurePassword
                       ? Icons.visibility_off_rounded
                       : Icons.visibility_rounded,
                   color: AppColors.textSecondary,
-                  size: 20,
+                  size: isTv ? 24 : 20,
                 ),
                 onPressed: () {
                   setState(() {
@@ -792,15 +807,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
           const SizedBox(height: 14),
 
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 8,
             children: [
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   SizedBox(
-                    width: 20,
-                    height: 20,
+                    width: isTv ? 26 : 20,
+                    height: isTv ? 26 : 20,
                     child: Checkbox(
                       value: _rememberMe,
                       onChanged: (value) async {
@@ -831,7 +848,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     'Recordarme',
                     style: GoogleFonts.manrope(
                       color: AppColors.textSecondary,
-                      fontSize: 13,
+                      fontSize: isTv ? 15 : 13,
                     ),
                   ),
                 ],
@@ -854,7 +871,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   '¿Olvidaste tu contraseña?',
                   style: GoogleFonts.manrope(
                     color: AppColors.accent,
-                    fontSize: 13,
+                    fontSize: isTv ? 15 : 13,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -945,9 +962,12 @@ class _LoginScreenState extends State<LoginScreen> {
           SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final cardWidth = constraints.maxWidth >= 700
-                    ? 420.0
-                    : constraints.maxWidth * 0.9;
+                final isTv = TvUtils.isTvWidth(constraints.maxWidth);
+                final cardWidth = isTv
+                    ? 560.0
+                    : (constraints.maxWidth >= 700
+                        ? 420.0
+                        : constraints.maxWidth * 0.9);
 
                 return AnimatedPadding(
                   duration: const Duration(milliseconds: 250),

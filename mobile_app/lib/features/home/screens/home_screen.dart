@@ -9,6 +9,7 @@ import '../../live_tv/services/favorite_channel_service.dart';
 import '../../live_tv/screens/search_screen.dart';
 import '../../live_tv/screens/player_screen.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/tv_utils.dart';
 import '../../../core/widgets/ad_slot.dart';
 import '../../../core/widgets/bottom_nav.dart';
 import '../../../core/widgets/section_header.dart';
@@ -377,24 +378,27 @@ void _reloadFavorites() {
       }
 
       final channels = snapshot.data!;
+      final isTv = TvUtils.isTv(context);
 
       return SizedBox(
-        height: 155,
+        height: isTv ? 210 : 155,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 20),
           itemCount: channels.length,
-          separatorBuilder: (context, index) => const SizedBox(width: 12),
+          separatorBuilder: (context, index) =>
+              SizedBox(width: isTv ? 18 : 12),
           itemBuilder: (context, index) {
             final channel = channels[index];
 
             return SizedBox(
-              width: 110,
+              width: isTv ? 155 : 110,
               child: LogoTile(
                 title: channel.name,
                 subtitle: 'EN VIVO',
                 imageUrl: channel.icon,
                 color: AppColors.textSecondary,
+                autofocus: isTv && index == 0,
                 onTap: () async {
                   await Navigator.push(
                     context,
@@ -489,18 +493,20 @@ void _reloadFavorites() {
         );
       }
 
+      final isTv = TvUtils.isTv(context);
+
       return SizedBox(
-        height: 155,
+        height: isTv ? 210 : 155,
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 20),
           itemCount: favorites.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 12),
+          separatorBuilder: (_, _) => SizedBox(width: isTv ? 18 : 12),
           itemBuilder: (context, index) {
             final channel = favorites[index];
 
             return SizedBox(
-              width: 110,
+              width: isTv ? 155 : 110,
               child: LogoTile(
                 title: channel.name,
                 subtitle: 'FAVORITO',

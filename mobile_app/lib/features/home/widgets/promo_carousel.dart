@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/tv_utils.dart';
 
 class PromoBanner {
   const PromoBanner({
@@ -111,21 +112,45 @@ class _PromoCarouselState extends State<PromoCarousel> {
   }
 }
 
-class _BannerCard extends StatelessWidget {
+class _BannerCard extends StatefulWidget {
   const _BannerCard({required this.banner});
 
   final PromoBanner banner;
 
   @override
+  State<_BannerCard> createState() => _BannerCardState();
+}
+
+class _BannerCardState extends State<_BannerCard> {
+  bool _focused = false;
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: banner.onTap,
-      child: Container(
+    final banner = widget.banner;
+    final isTv = TvUtils.isTv(context);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: banner.onTap,
+        focusColor: Colors.white.withValues(alpha: .1),
+        onFocusChange:
+            isTv ? (focused) => setState(() => _focused = focused) : null,
+        child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         margin: const EdgeInsets.symmetric(horizontal: 20),
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           gradient: banner.gradient,
           borderRadius: BorderRadius.circular(16),
+          border: isTv
+              ? Border.all(
+                  color: _focused ? AppColors.accent : Colors.transparent,
+                  width: 3,
+                )
+              : null,
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: .35),
@@ -217,6 +242,7 @@ class _BannerCard extends StatelessWidget {
               ],
             ),
           ],
+        ),
         ),
       ),
     );

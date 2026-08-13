@@ -12,6 +12,7 @@ import 'package:volume_controller/volume_controller.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/services/pip_service.dart';
 import '../../../core/services/live_playback_manager.dart';
+import '../../../core/utils/tv_utils.dart';
 import '../models/recent_channel.dart';
 import '../services/recent_channel_service.dart';
 import '../models/favorite_channel.dart';
@@ -496,7 +497,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             // celular. En pantalla completa queremos que ocupe todo el
             // espacio disponible, recortando el sobrante si hace falta
             // en vez de dejar barras.
-            fit: BoxFit.cover,
+            fit: BoxFit.contain,
           ),
         ),
 
@@ -560,6 +561,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     final castEnabled = _manager.castAvailable;
     final tvEnabled = _manager.tvChannelSwitcherAvailable;
     final moreEnabled = _manager.moreOptionsAvailable;
+    final isTv = TvUtils.isTv(context);
+    final iconSize = isTv ? 26.0 : 20.0;
 
     return Container(
       padding: EdgeInsets.fromLTRB(4, _isLandscape ? 6 : 6, 8, 16),
@@ -576,9 +579,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
           children: [
             IconButton(
               onPressed: _minimizeAndExit,
-              icon: const Icon(
+              icon: Icon(
                 Icons.arrow_back_ios_new_rounded,
                 color: AppColors.textPrimary,
+                size: iconSize,
               ),
             ),
             if (widget.channelIcon != null && widget.channelIcon!.isNotEmpty)
@@ -586,11 +590,11 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 borderRadius: BorderRadius.circular(6),
                 child: Image.network(
                   widget.channelIcon!,
-                  width: 22,
-                  height: 22,
+                  width: isTv ? 28 : 22,
+                  height: isTv ? 28 : 22,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => const Icon(
-                    Icons.public_rounded, color: AppColors.textPrimary, size: 20,
+                  errorBuilder: (context, error, stackTrace) => Icon(
+                    Icons.public_rounded, color: AppColors.textPrimary, size: iconSize,
                   ),
                 ),
               ),
@@ -599,8 +603,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
               child: Text(
                 widget.channelName,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 15,
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: isTv ? 19 : 15,
                 ),
               ),
             ),
@@ -610,32 +616,32 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             if (castEnabled)
               IconButton(
                 onPressed: _comingSoon,
-                icon: const Icon(Icons.cast_connected_rounded, color: AppColors.textPrimary, size: 20),
+                icon: Icon(Icons.cast_connected_rounded, color: AppColors.textPrimary, size: iconSize),
               ),
             IconButton(
               onPressed: _toggleFavorite,
               icon: Icon(
                 _isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                 color: Colors.redAccent,
-                size: 22,
+                size: isTv ? 28 : 22,
               ),
             ),
             if (tvEnabled)
               IconButton(
                 onPressed: _comingSoon,
-                icon: const Icon(Icons.tv_rounded, color: AppColors.textPrimary, size: 20),
+                icon: Icon(Icons.tv_rounded, color: AppColors.textPrimary, size: iconSize),
               ),
             IconButton(
               onPressed: _toggleOrientation,
               icon: Icon(
                 _isLandscape ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
-                color: AppColors.textPrimary, size: 22,
+                color: AppColors.textPrimary, size: isTv ? 28 : 22,
               ),
             ),
             if (moreEnabled)
               IconButton(
                 onPressed: _comingSoon,
-                icon: const Icon(Icons.more_vert_rounded, color: AppColors.textPrimary, size: 20),
+                icon: Icon(Icons.more_vert_rounded, color: AppColors.textPrimary, size: iconSize),
               ),
           ],
         ),
@@ -652,11 +658,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
 
     final isPlaying = _manager.isPlaying;
+    final isTv = TvUtils.isTv(context);
 
     return _circleIconButton(
       icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-      size: 34,
-      padding: 14,
+      size: isTv ? 46 : 34,
+      padding: isTv ? 20 : 14,
+      // En TV este botón recibe el foco inicial al abrir el reproductor:
+      // así el OK/Enter del control remoto pausa/reanuda de inmediato,
+      // sin que el usuario tenga que navegar primero hasta él.
+      autofocus: isTv,
       onTap: () {
         _manager.togglePlayPause();
         _scheduleHideControls();
@@ -669,33 +680,52 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     required VoidCallback onTap,
     double size = 26,
     double padding = 10,
+    bool autofocus = false,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.all(padding),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: .35), shape: BoxShape.circle,
+    // Material + InkWell en vez de GestureDetector: mismo aspecto y
+    // mismo comportamiento táctil, pero además navegable y activable
+    // con Enter/OK/D-Pad center en TV (foco nativo de InkWell).
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        autofocus: autofocus,
+        customBorder: const CircleBorder(),
+        focusColor: Colors.white.withValues(alpha: .25),
+        child: Container(
+          padding: EdgeInsets.all(padding),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .35), shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: Colors.white, size: size),
         ),
-        child: Icon(icon, color: Colors.white, size: size),
       ),
     );
   }
 
   Widget _buildLockButton() {
-    return GestureDetector(
-      onTap: () {
-        setState(() => _locked = !_locked);
-        _scheduleHideControls();
-      },
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: .45), shape: BoxShape.circle,
-        ),
-        child: Icon(
-          _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-          color: Colors.white, size: 18,
+    final isTv = TvUtils.isTv(context);
+
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: () {
+          setState(() => _locked = !_locked);
+          _scheduleHideControls();
+        },
+        customBorder: const CircleBorder(),
+        focusColor: Colors.white.withValues(alpha: .25),
+        child: Container(
+          padding: EdgeInsets.all(isTv ? 12 : 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .45), shape: BoxShape.circle,
+          ),
+          child: Icon(
+            _locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+            color: Colors.white, size: isTv ? 26 : 18,
+          ),
         ),
       ),
     );

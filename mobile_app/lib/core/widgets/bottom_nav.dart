@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import '../utils/tv_utils.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/live_tv/screens/live_tv_home_screen.dart';
 
@@ -70,6 +71,12 @@ class AppBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     final isLandscape =
     MediaQuery.orientationOf(context) == Orientation.landscape;
+    final isTv = TvUtils.isTv(context);
+
+    // En TV se navega con control remoto/teclado, así que se agranda
+    // el texto e ícono para que se lea con comodidad a distancia, y
+    // BottomNavigationBar ya soporta foco/activación por teclado de
+    // forma nativa en cada item.
     return BottomNavigationBar(
       currentIndex: currentIndex,
       onTap: (index) => _onTap(context, index),
@@ -79,13 +86,13 @@ class AppBottomNav extends StatelessWidget {
       type: BottomNavigationBarType.fixed,
       showUnselectedLabels: true,
       selectedLabelStyle: TextStyle(
-        fontSize: isLandscape ? 10 : 11,
+        fontSize: isTv ? 14 : (isLandscape ? 10 : 11),
         fontWeight: FontWeight.bold,
       ),
       unselectedLabelStyle: TextStyle(
-      fontSize: isLandscape ? 10 : 11,
+        fontSize: isTv ? 14 : (isLandscape ? 10 : 11),
       ),
-      iconSize: isLandscape ? 20 : 24,
+      iconSize: isTv ? 30 : (isLandscape ? 20 : 24),
       elevation: 0,
       items: _items,
     );

@@ -90,7 +90,6 @@ class _MiniPlayerOverlayState extends State<MiniPlayerOverlay> {
                       child: Video(
                         controller: manager.videoController,
                         controls: NoVideoControls,
-                        fit: BoxFit.cover,
                       ),
                     ),
                     // Degradado inferior para que el nombre del canal se

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/tv_utils.dart';
 import '../../../core/widgets/bottom_nav.dart';
 import '../../../core/widgets/section_header.dart';
 import '../../home/widgets/home_menu_card.dart';
@@ -113,9 +114,10 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
 
     final isLandscape =
     MediaQuery.orientationOf(context) == Orientation.landscape;
+    final isTv = TvUtils.isTv(context);
 
     return SizedBox(
-      height: isLandscape ? 40 : 46,
+      height: isTv ? 56 : (isLandscape ? 40 : 46),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -124,29 +126,40 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
         itemBuilder: (context, index) {
           final tab = tabs[index];
           final selected = tab.id == _selectedTabId;
-          return GestureDetector(
-            onTap: () => setState(() => _selectedTabId = tab.id),
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: selected
-                    ? AppColors.primary
-                    : AppColors.card,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
+          // Material + InkWell en vez de GestureDetector: así cada
+          // pestaña recibe foco navegable y se activa con Enter/OK del
+          // control remoto de forma nativa, además del toque normal.
+          return Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(24),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(24),
+              focusColor: AppColors.primary.withValues(alpha: .25),
+              onTap: () => setState(() => _selectedTabId = tab.id),
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isTv ? 20 : 16,
+                  vertical: isTv ? 12 : 8,
+                ),
+                decoration: BoxDecoration(
                   color: selected
                       ? AppColors.primary
-                      : Colors.white.withValues(alpha: .08),
+                      : AppColors.card,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: selected
+                        ? AppColors.primary
+                        : Colors.white.withValues(alpha: .08),
+                  ),
                 ),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                tab.label,
-                style: TextStyle(
-                  color: selected ? Colors.white : AppColors.textSecondary,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
+                alignment: Alignment.center,
+                child: Text(
+                  tab.label,
+                  style: TextStyle(
+                    color: selected ? Colors.white : AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: isTv ? 15 : 13,
+                  ),
                 ),
               ),
             ),
@@ -206,16 +219,21 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
 
         final isLandscape =
             MediaQuery.orientationOf(context) == Orientation.landscape;
+        final isTv = TvUtils.isTv(context);
 
-        final horizontalPadding = isLandscape ? 32.0 : 20.0;
-        final spacing = isLandscape ? 12.0 : 18.0;
+        final horizontalPadding = isTv ? 40.0 : (isLandscape ? 32.0 : 20.0);
+        final spacing = isTv ? 20.0 : (isLandscape ? 12.0 : 18.0);
 
         final availableWidth =
             screenWidth - (horizontalPadding * 2);
 
-        final crossAxisCount = isLandscape
-            ? (availableWidth / 150).floor().clamp(3, 6)
-            : 3;
+        final crossAxisCount = isTv
+            ? TvUtils.gridCrossAxisCount(
+                context: context,
+                availableWidth: availableWidth,
+                tileWidth: 190,
+              )
+            : (isLandscape ? (availableWidth / 150).floor().clamp(3, 6) : 3);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -234,7 +252,7 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
                   crossAxisCount: crossAxisCount,
                   mainAxisSpacing: spacing,
                   crossAxisSpacing: spacing,
-                  childAspectRatio: isLandscape ? 1.05 : .82,
+                  childAspectRatio: isTv ? 1.0 : (isLandscape ? 1.05 : .82),
                 ),
                 itemBuilder: (context, index) {
                   final channel = channels[index];
@@ -313,66 +331,72 @@ class _LiveTvHomeScreenState extends State<LiveTvHomeScreen> {
               padding: const EdgeInsets.only(bottom: 24),
               children: [
 
-                const SizedBox(height:20),
+                const SizedBox(height:8),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                  // Antes era un TextField de solo lectura: funcionaba
+                  // al tacto pero un campo de texto no se "activa" con
+                  // Enter/OK de un control remoto (el sistema espera
+                  // que ahí se escriba, no que dispare una acción). Un
+                  // botón real (Material + InkWell) se ve idéntico y
+                  // sigue abriendo Buscar al tocar, pero además queda
+                  // navegable y activable por teclado/control en TV.
                   child: SizedBox(
                     height: 56,
-                    child: TextField(
-                      readOnly: true,
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => SearchScreen(
-                              username: widget.username,
-                              password: widget.password,
+                    child: Material(
+                      color: AppColors.card,
+                      borderRadius: BorderRadius.circular(30),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(30),
+                        focusColor: AppColors.primary.withValues(alpha: .25),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => SearchScreen(
+                                username: widget.username,
+                                password: widget.password,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(30),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: .08),
                             ),
                           ),
-                        );
-                      },
-                      decoration: InputDecoration(
-                        hintText: 'Buscar canal...',
-                        hintStyle: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 15,
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.search_rounded,
-                          color: AppColors.textSecondary,
-                        ),
-                        suffixIcon: const Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          size: 18,
-                          color: AppColors.textSecondary,
-                          ),
-                        filled: true,
-                        fillColor: AppColors.card,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide.none,
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide(
-                            color: Colors.white.withValues(alpha: .08),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          borderSide: const BorderSide(
-                            color: AppColors.primary,
-                            width: 1.2,
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.search_rounded,
+                                color: AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'Buscar canal...',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ),
+                              const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 18,
+                                color: AppColors.textSecondary,
+                              ),
+                            ],
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
+                const SizedBox(height: 10),
                 _buildTabsBar(categories),
                 const SizedBox(height: 4),
 

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/tv_utils.dart';
+import '../../home/widgets/home_menu_card.dart';
 import '../models/live_category.dart';
 import '../models/live_channel.dart';
 import '../services/live_tv_service.dart';
@@ -176,6 +178,7 @@ Widget build(BuildContext context) {
   final mediaQuery = MediaQuery.of(context);
   final isLandscape =
       mediaQuery.orientation == Orientation.landscape;
+  final isTv = TvUtils.isTv(context);
 
   final keyboardVisible = mediaQuery.viewInsets.bottom > 0;
 
@@ -358,6 +361,7 @@ Widget build(BuildContext context) {
                         contentPadding: EdgeInsets.symmetric(
                           horizontal: isLandscape ? 4 : 8,
                         ),
+                        focusColor: AppColors.primary.withValues(alpha: .2),
 
                         leading: const Icon(
                           Icons.category,
@@ -366,8 +370,9 @@ Widget build(BuildContext context) {
 
                         title: Text(
                           category.name,
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: Colors.white,
+                            fontSize: isTv ? 17 : null,
                           ),
                         ),
 
@@ -390,54 +395,87 @@ Widget build(BuildContext context) {
                         'Canales',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: isLandscape ? 16 : 18,
+                          fontSize: isTv ? 20 : (isLandscape ? 16 : 18),
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
 
-                    ..._channels.map(
-                      (channel) => ListTile(
-                        dense: isLandscape,
-
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: isLandscape ? 4 : 8,
+                    // En TV los resultados se ven como grilla de
+                    // tarjetas grandes con foco claro (igual que el
+                    // resto de la app), en vez de una lista angosta
+                    // pensada para dedo/gesto táctil.
+                    if (isTv)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _channels.length,
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 5,
+                            mainAxisSpacing: 18,
+                            crossAxisSpacing: 18,
+                            childAspectRatio: 1.0,
+                          ),
+                          itemBuilder: (context, index) {
+                            final channel = _channels[index];
+                            return LogoTile(
+                              title: channel.name,
+                              subtitle: 'EN VIVO',
+                              imageUrl: channel.icon,
+                              icon: Icons.live_tv_rounded,
+                              color: AppColors.primary,
+                              autofocus: index == 0,
+                              onTap: () => _openPlayer(channel),
+                            );
+                          },
                         ),
+                      )
+                    else
+                      ..._channels.map(
+                        (channel) => ListTile(
+                          dense: isLandscape,
 
-                        leading: channel.icon != null &&
-                                channel.icon!.isNotEmpty
-                            ? Image.network(
-                                channel.icon!,
-                                width: isLandscape ? 32 : 40,
-                                height: isLandscape ? 32 : 40,
-                                errorBuilder:
-                                    (_, _, _) => const Icon(
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: isLandscape ? 4 : 8,
+                          ),
+
+                          leading: channel.icon != null &&
+                                  channel.icon!.isNotEmpty
+                              ? Image.network(
+                                  channel.icon!,
+                                  width: isLandscape ? 32 : 40,
+                                  height: isLandscape ? 32 : 40,
+                                  errorBuilder:
+                                      (_, _, _) => const Icon(
+                                    Icons.tv,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(
                                   Icons.tv,
                                   color: Colors.white,
                                 ),
-                              )
-                            : const Icon(
-                                Icons.tv,
-                                color: Colors.white,
-                              ),
 
-                        title: Text(
-                          channel.name,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          title: Text(
+                            channel.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                            ),
                           ),
-                        ),
 
-                        subtitle: const Text(
-                          'EN VIVO',
-                          style: TextStyle(
-                            color: Colors.greenAccent,
+                          subtitle: const Text(
+                            'EN VIVO',
+                            style: TextStyle(
+                              color: Colors.greenAccent,
+                            ),
                           ),
-                        ),
 
-                        onTap: () => _openPlayer(channel),
+                          onTap: () => _openPlayer(channel),
+                        ),
                       ),
-                    ),
                   ],
 
                   if (!_loading &&
