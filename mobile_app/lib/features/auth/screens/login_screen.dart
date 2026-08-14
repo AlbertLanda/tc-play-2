@@ -487,7 +487,7 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
             borderRadius: BorderRadius.circular(10),
             onTap: onTap,
             child: Container(
-              height: 48,
+              height: 40,
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
@@ -516,120 +516,168 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final displayedValue = widget.obscure && _value.isNotEmpty
+    final size = MediaQuery.sizeOf(context);
+    final displayValue = widget.obscure && _value.isNotEmpty
         ? '•' * _value.length
         : (_value.isEmpty ? 'Sin texto' : _value);
 
-    final letterKeys = _letters
-        .map((letter) => _keyboardKey(
-              label: _upperCase ? letter.toUpperCase() : letter,
-              onTap: () => _append(_upperCase ? letter.toUpperCase() : letter),
-            ))
-        .toList();
-
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-      child: Container(
-        width: 780,
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.accent.withValues(alpha: .22)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: .55),
-              blurRadius: 36,
-              offset: const Offset(0, 18),
-            ),
-          ],
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 820,
+          maxHeight: size.height * 0.88,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              widget.title,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.manrope(
-                color: AppColors.textPrimary,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-              ),
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: AppColors.surface.withValues(alpha: .96),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: AppColors.accent.withValues(alpha: .22),
             ),
-            const SizedBox(height: 14),
-            Container(
-              height: 58,
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: .35),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.accent.withValues(alpha: .30)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .55),
+                blurRadius: 32,
+                offset: const Offset(0, 18),
               ),
-              child: Text(
-                displayedValue,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.manrope(
-                  color: _value.isEmpty
-                      ? AppColors.textSecondary.withValues(alpha: .65)
-                      : AppColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            _row(_numbers.map((n) => _keyboardKey(label: n, onTap: () => _append(n))).toList()),
-            _row(letterKeys.sublist(0, 9)),
-            _row(letterKeys.sublist(9, 18)),
-            _row(letterKeys.sublist(18, 26)),
-            _row(_symbols.map((s) => _keyboardKey(label: s, onTap: () => _append(s))).toList()),
-            _row([
-              _keyboardKey(
-                label: _upperCase ? 'minúsculas' : 'MAYÚS',
-                flex: 2,
-                onTap: () => setState(() => _upperCase = !_upperCase),
-              ),
-              _keyboardKey(
-                label: 'Espacio',
-                flex: 2,
-                onTap: () => _append(' '),
-              ),
-              _keyboardKey(
-                label: 'Borrar',
-                flex: 2,
-                icon: Icons.backspace_outlined,
-                onTap: _backspace,
-              ),
-              _keyboardKey(
-                label: 'Limpiar',
-                flex: 2,
-                icon: Icons.delete_outline_rounded,
-                onTap: _clear,
-              ),
-            ]),
-            const SizedBox(height: 14),
-            Row(
+            ],
+          ),
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: PrimaryButton(
-                    text: 'Cancelar',
-                    onPressed: () => Navigator.of(context).pop<String?>(null),
+                Text(
+                  widget.title,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.manrope(
+                    color: AppColors.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: PrimaryButton(
-                    text: 'Aceptar',
-                    onPressed: () => Navigator.of(context).pop<String>(_value),
+                const SizedBox(height: 12),
+                Container(
+                  height: 54,
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .28),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: .12),
+                    ),
                   ),
+                  child: Text(
+                    displayValue,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.manrope(
+                      color: _value.isEmpty
+                          ? AppColors.textSecondary
+                          : AppColors.textPrimary,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                _row(_numbers.map((n) {
+                  return _keyboardKey(
+                    label: n,
+                    onTap: () => _append(n),
+                  );
+                }).toList()),
+
+                _row(_letters.sublist(0, 9).map((letter) {
+                  final value = _upperCase ? letter.toUpperCase() : letter;
+                  return _keyboardKey(
+                    label: value,
+                    onTap: () => _append(value),
+                  );
+                }).toList()),
+
+                _row(_letters.sublist(9, 18).map((letter) {
+                  final value = _upperCase ? letter.toUpperCase() : letter;
+                  return _keyboardKey(
+                    label: value,
+                    onTap: () => _append(value),
+                  );
+                }).toList()),
+
+                _row(_letters.sublist(18).map((letter) {
+                  final value = _upperCase ? letter.toUpperCase() : letter;
+                  return _keyboardKey(
+                    label: value,
+                    onTap: () => _append(value),
+                  );
+                }).toList()),
+
+                _row(_symbols.map((symbol) {
+                  return _keyboardKey(
+                    label: symbol,
+                    onTap: () => _append(symbol),
+                  );
+                }).toList()),
+
+                const SizedBox(height: 6),
+
+                _row([
+                  _keyboardKey(
+                    label: _upperCase ? 'abc' : 'ABC',
+                    flex: 2,
+                    onTap: () {
+                      setState(() {
+                        _upperCase = !_upperCase;
+                      });
+                    },
+                  ),
+                  _keyboardKey(
+                    label: 'Espacio',
+                    flex: 3,
+                    onTap: () => _append(' '),
+                  ),
+                  _keyboardKey(
+                    label: 'Borrar',
+                    flex: 2,
+                    icon: Icons.backspace_outlined,
+                    onTap: _backspace,
+                  ),
+                  _keyboardKey(
+                    label: 'Limpiar',
+                    flex: 2,
+                    icon: Icons.delete_outline_rounded,
+                    onTap: _clear,
+                  ),
+                ]),
+
+                const SizedBox(height: 10),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: PrimaryButton(
+                        text: 'Cancelar',
+                        onPressed: () => Navigator.of(context).pop<String>(),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: PrimaryButton(
+                        text: 'Aceptar',
+                        onPressed: () => Navigator.of(context).pop<String>(_value),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -935,7 +983,7 @@ class _LoginScreenState extends State<LoginScreen> {
         borderRadius: BorderRadius.circular(10),
         onTap: onTap,
         child: Container(
-          minHeight: 66,
+          constraints: const BoxConstraints(minHeight: 66),
           padding: const EdgeInsets.symmetric(horizontal: 18),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: .05),
