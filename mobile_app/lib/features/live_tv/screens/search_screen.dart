@@ -28,6 +28,12 @@ class _SearchScreenState extends State<SearchScreen> {
   final LiveTvService _service = LiveTvService();
 
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  // Ver TvUtils.showKeyboardOnFocus: en TV el foco puede llegar por
+  // control remoto en vez de un toque táctil, y sin esto el teclado
+  // en pantalla nunca aparece.
+  late final VoidCallback _searchKeyboardListener;
 
   Timer? _searchTimer;
 
@@ -46,6 +52,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _loadSearchData();
+    _searchKeyboardListener = TvUtils.showKeyboardOnFocus(_searchFocusNode);
   }
 
   Future<void> _loadSearchData() async {
@@ -167,7 +174,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
     _searchTimer?.cancel();
 
+    _searchFocusNode.removeListener(_searchKeyboardListener);
     _controller.dispose();
+    _searchFocusNode.dispose();
 
     super.dispose();
   }
@@ -208,6 +217,7 @@ Widget build(BuildContext context) {
           children: [
             TextField(
               controller: _controller,
+              focusNode: _searchFocusNode,
               autofocus: true,
               onChanged: _search,
 

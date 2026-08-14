@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../../core/utils/tv_utils.dart';
 import '../../../core/widgets/ad_slot.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../auth/screens/login_screen.dart';
@@ -269,14 +270,29 @@ class _ContactFlowDialog extends StatefulWidget {
 class _ContactFlowDialogState extends State<_ContactFlowDialog> {
   final TextEditingController _descriptionController =
       TextEditingController();
+  final FocusNode _descriptionFocusNode = FocusNode();
+
+  // Ver TvUtils.showKeyboardOnFocus: en TV el foco puede llegar por
+  // control remoto en vez de un toque táctil, y sin esto el teclado
+  // en pantalla nunca aparece.
+  late final VoidCallback _descriptionKeyboardListener;
 
   String? _description;
   String? _selectedSede;
   _SupportContact? _selectedContact;
 
   @override
+  void initState() {
+    super.initState();
+    _descriptionKeyboardListener =
+        TvUtils.showKeyboardOnFocus(_descriptionFocusNode);
+  }
+
+  @override
   void dispose() {
+    _descriptionFocusNode.removeListener(_descriptionKeyboardListener);
     _descriptionController.dispose();
+    _descriptionFocusNode.dispose();
     super.dispose();
   }
 
@@ -440,6 +456,7 @@ class _ContactFlowDialogState extends State<_ContactFlowDialog> {
       const SizedBox(height: 16),
       TextField(
         controller: _descriptionController,
+        focusNode: _descriptionFocusNode,
         maxLines: 4,
         style: const TextStyle(color: Colors.white, fontSize: 14),
         decoration: InputDecoration(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../constants/app_colors.dart';
 
@@ -44,6 +45,48 @@ class TvUtils {
     return isTv(context)
         ? count.clamp(tvMin, tvMax)
         : count.clamp(mobileMin, mobileMax);
+  }
+
+  /// En TV, un `TextField` puede recibir foco por control remoto
+  /// (autofocus o flechas + OK) en vez de un toque táctil. Flutter solo
+  /// abre el teclado en pantalla automáticamente cuando detecta un
+  /// toque; si el foco llega por control remoto, el campo queda
+  /// "seleccionado" (con el cursor visible) pero el teclado nunca
+  /// aparece y el usuario no puede escribir.
+  ///
+  /// Este helper fuerza la apertura del teclado cada vez que el
+  /// [FocusNode] dado gana foco, sin importar cómo lo haya obtenido.
+  /// Debe llamarse una vez en `initState`, con el mismo `FocusNode` que
+  /// se le pase al `TextField` correspondiente, y su listener debe
+  /// quitarse en `dispose` con [FocusNode.removeListener] pasando el
+  /// mismo callback devuelto por este método.
+  ///
+  /// Uso:
+  /// ```dart
+  /// late final VoidCallback _showKeyboardListener;
+  ///
+  /// @override
+  /// void initState() {
+  ///   super.initState();
+  ///   _showKeyboardListener = TvUtils.showKeyboardOnFocus(_focusNode);
+  /// }
+  ///
+  /// @override
+  /// void dispose() {
+  ///   _focusNode.removeListener(_showKeyboardListener);
+  ///   _focusNode.dispose();
+  ///   super.dispose();
+  /// }
+  /// ```
+  static VoidCallback showKeyboardOnFocus(FocusNode focusNode) {
+    void listener() {
+      if (focusNode.hasFocus) {
+        SystemChannels.textInput.invokeMethod('TextInput.show');
+      }
+    }
+
+    focusNode.addListener(listener);
+    return listener;
   }
 
   /// Decoración de foco compartida: borde y resplandor sutil en el azul

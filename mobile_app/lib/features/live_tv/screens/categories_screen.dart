@@ -24,6 +24,12 @@ class CategoriesScreen extends StatefulWidget {
 class _CategoriesScreenState extends State<CategoriesScreen> {
   final LiveTvService _service = LiveTvService();
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  // Ver TvUtils.showKeyboardOnFocus: en TV el foco puede llegar por
+  // control remoto en vez de un toque táctil, y sin esto el teclado
+  // en pantalla nunca aparece.
+  late final VoidCallback _searchKeyboardListener;
 
   late Future<List<LiveCategory>> _categories;
   String _search = '';
@@ -53,11 +59,14 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       username: widget.username,
       password: widget.password,
     );
+    _searchKeyboardListener = TvUtils.showKeyboardOnFocus(_searchFocusNode);
   }
 
   @override
   void dispose() {
+    _searchFocusNode.removeListener(_searchKeyboardListener);
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -174,6 +183,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                   sliver: SliverToBoxAdapter(
                     child: TextField(
                       controller: _searchController,
+                      focusNode: _searchFocusNode,
                       style: const TextStyle(
                           color: AppColors.textPrimary, fontSize: 15),
                       onChanged: (value) => setState(() => _search = value),

@@ -28,6 +28,12 @@ class ChannelsScreen extends StatefulWidget {
 class _ChannelsScreenState extends State<ChannelsScreen> {
   final LiveTvService _service = LiveTvService();
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
+  // Ver TvUtils.showKeyboardOnFocus: en TV el foco puede llegar por
+  // control remoto en vez de un toque táctil, y sin esto el teclado
+  // en pantalla nunca aparece.
+  late final VoidCallback _searchKeyboardListener;
 
   late Future<List<LiveChannel>> _channels;
   String _search = '';
@@ -43,6 +49,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
       password: widget.password,
       categoryId: widget.categoryId,
     );
+    _searchKeyboardListener = TvUtils.showKeyboardOnFocus(_searchFocusNode);
   }
 
   Future<void> _refresh() async {
@@ -58,7 +65,9 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
 
   @override
   void dispose() {
+    _searchFocusNode.removeListener(_searchKeyboardListener);
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -163,6 +172,7 @@ class _ChannelsScreenState extends State<ChannelsScreen> {
               children: [
                 TextField(
                   controller: _searchController,
+                  focusNode: _searchFocusNode,
                   style: const TextStyle(
                       color: AppColors.textPrimary, fontSize: 15),
                   onChanged: (value) => setState(() => _search = value),

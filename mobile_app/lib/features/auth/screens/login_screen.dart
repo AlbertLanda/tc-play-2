@@ -433,6 +433,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  final FocusNode _usernameFocusNode = FocusNode();
   final FocusNode _passwordFocusNode = FocusNode();
 
   final AuthService _authService = AuthService();
@@ -443,10 +444,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
   double _keyboardOffset = 0;
 
+  // Ver TvUtils.showKeyboardOnFocus: en TV, el foco puede llegar a un
+  // TextField por control remoto en vez de un toque táctil, y sin esto
+  // el teclado en pantalla nunca aparece.
+  late final VoidCallback _usernameKeyboardListener;
+  late final VoidCallback _passwordKeyboardListener;
+
   @override
   void initState() {
     super.initState();
     _loadRememberedUser();
+
+    _usernameKeyboardListener =
+        TvUtils.showKeyboardOnFocus(_usernameFocusNode);
+    _passwordKeyboardListener =
+        TvUtils.showKeyboardOnFocus(_passwordFocusNode);
   }
 
   Future<void> _loadRememberedUser() async {
@@ -504,8 +516,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _usernameFocusNode.removeListener(_usernameKeyboardListener);
+    _passwordFocusNode.removeListener(_passwordKeyboardListener);
     _usernameController.dispose();
     _passwordController.dispose();
+    _usernameFocusNode.dispose();
     _passwordFocusNode.dispose();
     super.dispose();
   }
@@ -743,6 +758,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
           TextField(
             controller: _usernameController,
+            focusNode: _usernameFocusNode,
             textInputAction: TextInputAction.next,
             autofocus: isTv,
             style: GoogleFonts.manrope(
