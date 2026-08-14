@@ -4,6 +4,7 @@
 // y ejecuta `flutter pub get`.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -45,8 +46,6 @@ const String _kRecoveryMessage =
     'Hola, he olvide mi contraseña del aplicativo TC PLAY, solicito me '
     'brinde el apoyo necesario para recuperar mi contraseña';
 
-/// Muestra un mensaje como ventana flotante (Dialog), reemplazando los
-/// SnackBars para dar una mejor experiencia visual al usuario.
 Future<void> _showFloatingMessage(
   BuildContext context, {
   required String title,
@@ -66,9 +65,7 @@ Future<void> _showFloatingMessage(
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.accent.withValues(alpha: .18),
-          ),
+          border: Border.all(color: AppColors.accent.withValues(alpha: .18)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: .5),
@@ -116,7 +113,6 @@ Future<void> _showFloatingMessage(
   );
 }
 
-/// Botón de opción usado dentro del flujo de recuperación de contraseña.
 class _OptionButton extends StatelessWidget {
   const _OptionButton({
     required this.label,
@@ -176,9 +172,6 @@ class _OptionButton extends StatelessWidget {
   }
 }
 
-/// Ventana flotante con el flujo de recuperación de contraseña:
-/// 1) elegir sede, 2) elegir número (si hay más de uno), 3) enviar mensaje
-/// predefinido por WhatsApp al número elegido.
 class _RecoverPasswordDialog extends StatefulWidget {
   const _RecoverPasswordDialog();
 
@@ -198,16 +191,12 @@ class _RecoverPasswordDialogState extends State<_RecoverPasswordDialog> {
     final contacts = _kSupportSedes[sede] ?? const [];
     setState(() {
       _selectedSede = sede;
-      // Si la sede tiene un único número, se selecciona automáticamente
-      // y se pasa directo al paso del mensaje.
       _selectedContact = contacts.length == 1 ? contacts.first : null;
     });
   }
 
   void _selectContact(_SupportContact contact) {
-    setState(() {
-      _selectedContact = contact;
-    });
+    setState(() => _selectedContact = contact);
   }
 
   void _goBack() {
@@ -255,7 +244,6 @@ class _RecoverPasswordDialogState extends State<_RecoverPasswordDialog> {
     final showSedeStep = _selectedSede == null;
     final showContactStep = !showSedeStep && _selectedContact == null;
     final showMessageStep = _selectedContact != null;
-
     final isTv = TvUtils.isTv(context);
 
     return Dialog(
@@ -267,9 +255,7 @@ class _RecoverPasswordDialogState extends State<_RecoverPasswordDialog> {
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.accent.withValues(alpha: .18),
-          ),
+          border: Border.all(color: AppColors.accent.withValues(alpha: .18)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: .5),
@@ -419,6 +405,237 @@ class _RecoverPasswordDialogState extends State<_RecoverPasswordDialog> {
   }
 }
 
+class _TvKeyboardDialog extends StatefulWidget {
+  const _TvKeyboardDialog({
+    required this.title,
+    required this.initialValue,
+    required this.obscure,
+  });
+
+  final String title;
+  final String initialValue;
+  final bool obscure;
+
+  @override
+  State<_TvKeyboardDialog> createState() => _TvKeyboardDialogState();
+}
+
+class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
+  late String _value;
+  bool _upperCase = false;
+
+  static const List<String> _letters = [
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+    'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
+    'q', 'r', 's', 't', 'u', 'v', 'w', 'x',
+    'y', 'z',
+  ];
+
+  static const List<String> _numbers = [
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+  ];
+
+  static const List<String> _symbols = [
+    '@', '.', '_', '-', '+', '#', '*', '/', '!', '?',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _value = widget.initialValue;
+  }
+
+  void _append(String char) {
+    setState(() {
+      _value += char;
+    });
+  }
+
+  void _backspace() {
+    if (_value.isEmpty) return;
+    setState(() {
+      _value = _value.substring(0, _value.length - 1);
+    });
+  }
+
+  void _clear() {
+    setState(() {
+      _value = '';
+    });
+  }
+
+  Widget _keyboardKey({
+    required String label,
+    required VoidCallback onTap,
+    int flex = 1,
+    bool primary = false,
+    IconData? icon,
+  }) {
+    return Expanded(
+      flex: flex,
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Material(
+          color: primary
+              ? AppColors.accent
+              : Colors.white.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            autofocus: false,
+            canRequestFocus: true,
+            focusColor: AppColors.accent.withValues(alpha: .35),
+            borderRadius: BorderRadius.circular(10),
+            onTap: onTap,
+            child: Container(
+              height: 48,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: .14)),
+              ),
+              child: icon == null
+                  ? Text(
+                      label,
+                      style: GoogleFonts.manrope(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    )
+                  : Icon(icon, color: Colors.white, size: 22),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _row(List<Widget> children) {
+    return Row(children: children);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayedValue = widget.obscure && _value.isNotEmpty
+        ? '•' * _value.length
+        : (_value.isEmpty ? 'Sin texto' : _value);
+
+    final letterKeys = _letters
+        .map((letter) => _keyboardKey(
+              label: _upperCase ? letter.toUpperCase() : letter,
+              onTap: () => _append(_upperCase ? letter.toUpperCase() : letter),
+            ))
+        .toList();
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+      child: Container(
+        width: 780,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.accent.withValues(alpha: .22)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: .55),
+              blurRadius: 36,
+              offset: const Offset(0, 18),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.title,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.manrope(
+                color: AppColors.textPrimary,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              height: 58,
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: .35),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.accent.withValues(alpha: .30)),
+              ),
+              child: Text(
+                displayedValue,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.manrope(
+                  color: _value.isEmpty
+                      ? AppColors.textSecondary.withValues(alpha: .65)
+                      : AppColors.textPrimary,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            _row(_numbers.map((n) => _keyboardKey(label: n, onTap: () => _append(n))).toList()),
+            _row(letterKeys.sublist(0, 9)),
+            _row(letterKeys.sublist(9, 18)),
+            _row(letterKeys.sublist(18, 26)),
+            _row(_symbols.map((s) => _keyboardKey(label: s, onTap: () => _append(s))).toList()),
+            _row([
+              _keyboardKey(
+                label: _upperCase ? 'minúsculas' : 'MAYÚS',
+                flex: 2,
+                onTap: () => setState(() => _upperCase = !_upperCase),
+              ),
+              _keyboardKey(
+                label: 'Espacio',
+                flex: 2,
+                onTap: () => _append(' '),
+              ),
+              _keyboardKey(
+                label: 'Borrar',
+                flex: 2,
+                icon: Icons.backspace_outlined,
+                onTap: _backspace,
+              ),
+              _keyboardKey(
+                label: 'Limpiar',
+                flex: 2,
+                icon: Icons.delete_outline_rounded,
+                onTap: _clear,
+              ),
+            ]),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: PrimaryButton(
+                    text: 'Cancelar',
+                    onPressed: () => Navigator.of(context).pop<String?>(null),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: PrimaryButton(
+                    text: 'Aceptar',
+                    onPressed: () => Navigator.of(context).pop<String>(_value),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -444,9 +661,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   double _keyboardOffset = 0;
 
-  // Ver TvUtils.showKeyboardOnFocus: en TV, el foco puede llegar a un
-  // TextField por control remoto en vez de un toque táctil, y sin esto
-  // el teclado en pantalla nunca aparece.
   late final VoidCallback _usernameKeyboardListener;
   late final VoidCallback _passwordKeyboardListener;
 
@@ -464,7 +678,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _loadRememberedUser() async {
     try {
       final preferences = await SharedPreferences.getInstance();
-
       final rememberMe = preferences.getBool(_rememberMeKey) ?? false;
       final rememberedUsername =
           preferences.getString(_rememberedUsernameKey) ?? '';
@@ -477,41 +690,29 @@ class _LoginScreenState extends State<LoginScreen> {
           _usernameController.text = rememberedUsername;
         });
       }
-    } catch (_) {
-      // Si falla la lectura local, el login continúa funcionando normalmente.
-    }
+    } catch (_) {}
   }
 
-  // Por seguridad, la contraseña NUNCA se guarda en el dispositivo.
-  // "Recordarme" solo precarga el usuario en el siguiente inicio de sesión.
   Future<void> _saveRememberedUser(String username) async {
     try {
       final preferences = await SharedPreferences.getInstance();
 
       if (_rememberMe) {
         await preferences.setBool(_rememberMeKey, true);
-        await preferences.setString(
-          _rememberedUsernameKey,
-          username,
-        );
+        await preferences.setString(_rememberedUsernameKey, username);
       } else {
         await preferences.setBool(_rememberMeKey, false);
         await preferences.remove(_rememberedUsernameKey);
       }
-    } catch (_) {
-      // La persistencia local no debe impedir un login exitoso.
-    }
+    } catch (_) {}
   }
 
   Future<void> _clearRememberedUser() async {
     try {
       final preferences = await SharedPreferences.getInstance();
-
       await preferences.setBool(_rememberMeKey, false);
       await preferences.remove(_rememberedUsernameKey);
-    } catch (_) {
-      // No interrumpir la interacción si falla el almacenamiento local.
-    }
+    } catch (_) {}
   }
 
   @override
@@ -528,9 +729,48 @@ class _LoginScreenState extends State<LoginScreen> {
   void _updateKeyboardOffset(bool keyboardVisible) {
     if (!mounted) return;
 
+    final nextOffset = keyboardVisible ? 90.0 : 0.0;
+    if (_keyboardOffset == nextOffset) return;
+
     setState(() {
-      _keyboardOffset = keyboardVisible ? 90 : 0;
+      _keyboardOffset = nextOffset;
     });
+  }
+
+  void _openNativeKeyboard(FocusNode focusNode) {
+    focusNode.requestFocus();
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (!mounted || !focusNode.hasFocus) return;
+      SystemChannels.textInput.invokeMethod('TextInput.show');
+    });
+  }
+
+  Future<void> _openTvKeyboard({
+    required TextEditingController controller,
+    required String title,
+    required bool obscure,
+    FocusNode? nextFocusNode,
+  }) async {
+    final result = await showDialog<String?>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => _TvKeyboardDialog(
+        title: title,
+        initialValue: controller.text,
+        obscure: obscure,
+      ),
+    );
+
+    if (!mounted || result == null) return;
+
+    setState(() {
+      controller.text = result;
+      controller.selection = TextSelection.collapsed(offset: result.length);
+    });
+
+    if (nextFocusNode != null) {
+      nextFocusNode.requestFocus();
+    }
   }
 
   Future<void> _login() async {
@@ -564,8 +804,6 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (success) {
-        // Guardamos solamente el usuario.
-        // La contraseña nunca se almacena localmente.
         await _saveRememberedUser(username);
 
         if (!mounted) return;
@@ -584,13 +822,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (!mounted) return;
 
-      final errorMessage = e.toString().replaceFirst(
-            'Exception: ',
-            '',
-          );
-
+      final errorMessage = e.toString().replaceFirst('Exception: ', '');
       final normalizedError = errorMessage.toLowerCase();
-
       final isCredentialsError = normalizedError.contains('usuario') ||
           normalizedError.contains('contraseña') ||
           normalizedError.contains('credenciales');
@@ -599,8 +832,7 @@ class _LoginScreenState extends State<LoginScreen> {
         context,
         title: 'No se pudo iniciar sesión',
         message: isCredentialsError
-            ? 'Usuario o contraseña incorrectos. '
-                'Verifica tus datos e inténtalo nuevamente.'
+            ? 'Usuario o contraseña incorrectos. Verifica tus datos e inténtalo nuevamente.'
             : errorMessage,
         icon: Icons.error_outline_rounded,
         iconColor: Colors.redAccent,
@@ -640,15 +872,11 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(
-          color: Colors.white.withValues(alpha: .12),
-        ),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
-        borderSide: BorderSide(
-          color: Colors.white.withValues(alpha: .12),
-        ),
+        borderSide: BorderSide(color: Colors.white.withValues(alpha: .12)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
@@ -686,6 +914,65 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Widget _buildTvInputButton({
+    required String label,
+    required TextEditingController controller,
+    required IconData icon,
+    required bool obscure,
+    required VoidCallback onTap,
+  }) {
+    final displayedValue = obscure && controller.text.isNotEmpty
+        ? '•' * controller.text.length
+        : controller.text;
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        canRequestFocus: true,
+        autofocus: label == 'Usuario',
+        focusColor: AppColors.accent.withValues(alpha: .22),
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          minHeight: 66,
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: .05),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withValues(alpha: .14)),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: AppColors.textSecondary, size: 24),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  displayedValue.isEmpty ? 'Presiona OK para escribir' : displayedValue,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.manrope(
+                    color: displayedValue.isEmpty
+                        ? AppColors.textSecondary.withValues(alpha: .65)
+                        : AppColors.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Icon(
+                Icons.keyboard_rounded,
+                color: AppColors.accent,
+                size: 24,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFormCard(double cardWidth) {
     final isTv = TvUtils.isTv(context);
 
@@ -714,12 +1001,8 @@ class _LoginScreenState extends State<LoginScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(
-            child: AppLogo(size: isTv ? 108 : 84),
-          ),
-
+          Center(child: AppLogo(size: isTv ? 108 : 84)),
           const SizedBox(height: 24),
-
           Text(
             'Bienvenido a TC Play',
             textAlign: TextAlign.center,
@@ -729,12 +1012,9 @@ class _LoginScreenState extends State<LoginScreen> {
               fontWeight: FontWeight.w700,
             ),
           ),
-
           const SizedBox(height: 8),
-
           Text(
-            'Inicia sesión para disfrutar de televisión en vivo '
-            'y contenido exclusivo.',
+            'Inicia sesión para disfrutar de televisión en vivo y contenido exclusivo.',
             textAlign: TextAlign.center,
             style: GoogleFonts.manrope(
               color: AppColors.textSecondary,
@@ -742,9 +1022,7 @@ class _LoginScreenState extends State<LoginScreen> {
               height: 1.5,
             ),
           ),
-
           const SizedBox(height: 28),
-
           Text(
             'Usuario',
             style: GoogleFonts.manrope(
@@ -753,32 +1031,42 @@ class _LoginScreenState extends State<LoginScreen> {
               fontWeight: FontWeight.w700,
             ),
           ),
-
           const SizedBox(height: 8),
-
-          TextField(
-            controller: _usernameController,
-            focusNode: _usernameFocusNode,
-            textInputAction: TextInputAction.next,
-            autofocus: isTv,
-            style: GoogleFonts.manrope(
-              color: Colors.white,
-              fontSize: isTv ? 17 : 15,
-            ),
-            onSubmitted: (_) {
-              FocusScope.of(context).requestFocus(
-                _passwordFocusNode,
-              );
-            },
-            decoration: _fieldDecoration(
-              hint: 'Tu usuario',
+          if (isTv)
+            _buildTvInputButton(
+              label: 'Usuario',
+              controller: _usernameController,
               icon: Icons.alternate_email_rounded,
-              isTv: isTv,
+              obscure: false,
+              onTap: () => _openTvKeyboard(
+                controller: _usernameController,
+                title: 'Ingresar usuario',
+                obscure: false,
+                nextFocusNode: _passwordFocusNode,
+              ),
+            )
+          else
+            TextField(
+              controller: _usernameController,
+              focusNode: _usernameFocusNode,
+              keyboardType: TextInputType.visiblePassword,
+              textInputAction: TextInputAction.next,
+              autofocus: false,
+              style: GoogleFonts.manrope(
+                color: Colors.white,
+                fontSize: 15,
+              ),
+              onTap: () => _openNativeKeyboard(_usernameFocusNode),
+              onSubmitted: (_) {
+                FocusScope.of(context).requestFocus(_passwordFocusNode);
+                _openNativeKeyboard(_passwordFocusNode);
+              },
+              decoration: _fieldDecoration(
+                hint: 'Tu usuario',
+                icon: Icons.alternate_email_rounded,
+              ),
             ),
-          ),
-
           SizedBox(height: isTv ? 22 : 18),
-
           Text(
             'Contraseña',
             style: GoogleFonts.manrope(
@@ -787,42 +1075,79 @@ class _LoginScreenState extends State<LoginScreen> {
               fontWeight: FontWeight.w700,
             ),
           ),
-
           const SizedBox(height: 8),
-
-          TextField(
-            controller: _passwordController,
-            focusNode: _passwordFocusNode,
-            textInputAction: TextInputAction.done,
-            obscureText: _obscurePassword,
-            style: GoogleFonts.manrope(
-              color: Colors.white,
-              fontSize: isTv ? 17 : 15,
-            ),
-            onSubmitted: (_) => _login(),
-            decoration: _fieldDecoration(
-              hint: '••••••••',
+          if (isTv)
+            _buildTvInputButton(
+              label: 'Contraseña',
+              controller: _passwordController,
               icon: Icons.lock_outline_rounded,
-              isTv: isTv,
-              suffixIcon: IconButton(
-                icon: Icon(
-                  _obscurePassword
-                      ? Icons.visibility_off_rounded
-                      : Icons.visibility_rounded,
-                  color: AppColors.textSecondary,
-                  size: isTv ? 24 : 20,
+              obscure: _obscurePassword,
+              onTap: () => _openTvKeyboard(
+                controller: _passwordController,
+                title: 'Ingresar contraseña',
+                obscure: _obscurePassword,
+              ),
+            )
+          else
+            TextField(
+              controller: _passwordController,
+              focusNode: _passwordFocusNode,
+              keyboardType: TextInputType.visiblePassword,
+              textInputAction: TextInputAction.done,
+              obscureText: _obscurePassword,
+              style: GoogleFonts.manrope(
+                color: Colors.white,
+                fontSize: 15,
+              ),
+              onTap: () => _openNativeKeyboard(_passwordFocusNode),
+              onSubmitted: (_) => _login(),
+              decoration: _fieldDecoration(
+                hint: '••••••••',
+                icon: Icons.lock_outline_rounded,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_off_rounded
+                        : Icons.visibility_rounded,
+                    color: AppColors.textSecondary,
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _obscurePassword = !_obscurePassword;
+                    });
+                  },
                 ),
+              ),
+            ),
+          if (isTv) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
                 onPressed: () {
                   setState(() {
                     _obscurePassword = !_obscurePassword;
                   });
                 },
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_rounded
+                      : Icons.visibility_off_rounded,
+                  color: AppColors.accent,
+                  size: 20,
+                ),
+                label: Text(
+                  _obscurePassword ? 'Mostrar contraseña' : 'Ocultar contraseña',
+                  style: GoogleFonts.manrope(
+                    color: AppColors.accent,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ),
-          ),
-
+          ],
           const SizedBox(height: 14),
-
           Wrap(
             alignment: WrapAlignment.spaceBetween,
             crossAxisAlignment: WrapCrossAlignment.center,
@@ -838,21 +1163,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       value: _rememberMe,
                       onChanged: (value) async {
                         final newValue = value ?? false;
-
-                        setState(() {
-                          _rememberMe = newValue;
-                        });
-
-                        if (!newValue) {
-                          await _clearRememberedUser();
-                        }
+                        setState(() => _rememberMe = newValue);
+                        if (!newValue) await _clearRememberedUser();
                       },
                       activeColor: AppColors.accent,
                       checkColor: AppColors.textPrimary,
                       side: BorderSide(
-                        color: AppColors.textSecondary.withValues(
-                          alpha: .5,
-                        ),
+                        color: AppColors.textSecondary.withValues(alpha: .5),
                       ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(4),
@@ -869,7 +1186,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ],
               ),
-
               TextButton(
                 style: TextButton.styleFrom(
                   padding: EdgeInsets.zero,
@@ -894,27 +1210,21 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ],
           ),
-
-          // Nota explícita: por seguridad, solo se guarda el usuario.
           const SizedBox(height: 6),
           Text(
-            'Por tu seguridad, solo guardamos tu usuario. '
-            'La contraseña nunca se almacena en este dispositivo.',
+            'Por tu seguridad, solo guardamos tu usuario. La contraseña nunca se almacena en este dispositivo.',
             style: GoogleFonts.manrope(
               color: AppColors.textSecondary.withValues(alpha: .7),
               fontSize: 11.5,
               height: 1.4,
             ),
           ),
-
           const SizedBox(height: 20),
-
           PrimaryButton(
             text: 'Iniciar sesión',
             loading: _isLoading,
             onPressed: _login,
           ),
-
           if (_isLoading) ...[
             const SizedBox(height: 16),
             Center(
@@ -927,12 +1237,8 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ],
-
           const SizedBox(height: 30),
-
-          Center(
-            child: _buildBrandmark(),
-          ),
+          Center(child: _buildBrandmark()),
         ],
       ),
     );
@@ -940,8 +1246,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final keyboardVisible =
-        MediaQuery.of(context).viewInsets.bottom > 0;
+    final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _updateKeyboardOffset(keyboardVisible);
@@ -957,7 +1262,6 @@ class _LoginScreenState extends State<LoginScreen> {
             'assets/images/login_background.png',
             fit: BoxFit.cover,
           ),
-
           IgnorePointer(
             child: Container(
               decoration: BoxDecoration(
@@ -974,7 +1278,6 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-
           SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -998,18 +1301,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       vertical: 40,
                     ),
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight: constraints.maxHeight,
-                      ),
+                      constraints: BoxConstraints(minHeight: constraints.maxHeight),
                       child: AnimatedSlide(
                         duration: const Duration(milliseconds: 250),
-                        offset: Offset(
-                          0,
-                          -_keyboardOffset / 500,
-                        ),
-                        child: Center(
-                          child: _buildFormCard(cardWidth),
-                        ),
+                        offset: Offset(0, -_keyboardOffset / 500),
+                        child: Center(child: _buildFormCard(cardWidth)),
                       ),
                     ),
                   ),
