@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../live_tv/models/live_category.dart';
 import '../../live_tv/models/live_channel.dart';
 import '../../live_tv/services/live_tv_service.dart';
+import '../widgets/tv_preview_player.dart';
 
 class TvHomeScreen extends StatefulWidget {
   const TvHomeScreen({
@@ -447,80 +448,14 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Center(
-                child: channel.icon != null &&
-                        channel.icon!.isNotEmpty
-                    ? Image.network(
-                        channel.icon!,
-                        width: 120,
-                        height: 120,
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, _, _) {
-                          return const Icon(
-                            Icons.live_tv_rounded,
-                            size: 80,
-                            color: AppColors.textSecondary,
-                          );
-                        },
-                      )
-                    : const Icon(
-                        Icons.live_tv_rounded,
-                        size: 80,
-                        color: AppColors.textSecondary,
-                      ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 18),
-
-          Text(
-            channel.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppColors.textPrimary,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 6),
-
-          const Row(
-            children: [
-              Icon(
-                Icons.circle,
-                color: Color(0xFF22C55E),
-                size: 10,
-              ),
-              SizedBox(width: 8),
-              Text(
-                'EN VIVO',
-                style: TextStyle(
-                  color: Color(0xFF22C55E),
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
+            Expanded(
+                child: TvPreviewPlayer(
+                    key: ValueKey(channel.id),
+                    username: widget.username,
+                    password: widget.password,
+                    channel: channel,
                 ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 10),
-
-          const Text(
-            'La reproducción se habilitará en el siguiente paso.',
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
             ),
-          ),
         ],
       ),
     );
