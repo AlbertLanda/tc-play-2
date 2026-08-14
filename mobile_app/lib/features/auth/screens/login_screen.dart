@@ -11,9 +11,12 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/utils/tv_utils.dart';
+import '../../../core/device/device_profile.dart';
+import '../../../core/device/device_profile_service.dart';
 import '../../../core/widgets/app_logo.dart';
 import '../../../core/widgets/primary_button.dart';
 import '../../home/screens/home_screen.dart';
+import '../../tv/screens/tv_home_screen.dart';
 import '../services/auth_service.dart';
 
 /// Contacto de soporte de una sede, usado en la recuperación de contraseña.
@@ -854,16 +857,30 @@ class _LoginScreenState extends State<LoginScreen> {
       if (success) {
         await _saveRememberedUser(username);
 
+        final deviceProfile =
+            await DeviceProfileService.getSavedProfile();
+
         if (!mounted) return;
+
+        final Widget destination;
+
+        if (deviceProfile == DeviceProfile.tv) {
+          destination = TvHomeScreen(
+            username: username,
+            password: password,
+          );
+        } else {
+          destination = HomeScreen(
+            username: username,
+            password: password,
+            showWelcomeMessage: true,
+          );
+        }
 
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => HomeScreen(
-              username: username,
-              password: password,
-              showWelcomeMessage: true,
-            ),
+            builder: (_) => destination,
           ),
         );
       }
