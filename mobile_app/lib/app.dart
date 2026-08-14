@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/widgets/pip_overlay_root.dart';
-import 'features/auth/screens/login_screen.dart';
 import 'features/live_tv/widgets/mini_player_overlay.dart';
+import 'features/device/screens/device_boot_screen.dart';
 
 /// Navigator global de la app.
 ///
@@ -26,7 +26,7 @@ class TCPlayApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
       navigatorKey: appNavigatorKey,
-      home: const LoginScreen(),
+      home: const DeviceBootScreen(),
       // El mini-reproductor se monta acá, una sola vez para toda la app,
       // así que sobrevive a cualquier navegación entre pantallas y no
       // depende de que PlayerScreen siga montada.

@@ -1,0 +1,4 @@
+enum DeviceProfile {
+  mobile,
+  tv,
+}
