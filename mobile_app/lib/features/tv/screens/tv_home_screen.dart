@@ -4,7 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../live_tv/models/live_category.dart';
 import '../../live_tv/models/live_channel.dart';
 import '../../live_tv/services/live_tv_service.dart';
-import '../widgets/tv_preview_player.dart';
+import '../services/tv_overlay_service.dart';
 
 class TvHomeScreen extends StatefulWidget {
   const TvHomeScreen({
@@ -37,8 +37,15 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   @override
   void initState() {
     super.initState();
+
+    // Ya NO mostramos el rectángulo rojo aquí.
+    // El overlay se mostrará cuando tengamos un canal y una URL real.
     _loadCategories();
   }
+
+  // ============================================================
+  // CARGA DE CATEGORÍAS
+  // ============================================================
 
   Future<void> _loadCategories() async {
     try {
@@ -57,6 +64,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
       if (categories.isNotEmpty) {
         await _selectCategory(categories.first);
+      } else {
+        await TvOverlayService.hide();
       }
     } catch (e) {
       if (!mounted) return;
@@ -65,10 +74,24 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         _loadingCategories = false;
         _error = e.toString().replaceFirst('Exception: ', '');
       });
+
+      await TvOverlayService.hide();
     }
   }
 
-  Future<void> _selectCategory(LiveCategory category) async {
+  // ============================================================
+  // SELECCIÓN DE CATEGORÍA
+  // ============================================================
+
+  Future<void> _selectCategory(
+    LiveCategory category,
+  ) async {
+    // Ocultamos momentáneamente el reproductor mientras
+    // cargamos los canales de la nueva categoría.
+    await TvOverlayService.hide();
+
+    if (!mounted) return;
+
     setState(() {
       _selectedCategory = category;
       _selectedChannel = null;
@@ -86,32 +109,133 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       if (!mounted) return;
 
       // Evita que una respuesta antigua reemplace la categoría
-      // si el usuario se movió rápido a otra.
-      if (_selectedCategory?.id != category.id) return;
+      // si el usuario se movió rápidamente a otra.
+      if (_selectedCategory?.id != category.id) {
+        return;
+      }
+
+      LiveChannel? firstChannel;
 
       setState(() {
         _channels = channels;
         _loadingChannels = false;
 
         if (channels.isNotEmpty) {
-          _selectedChannel = channels.first;
+          firstChannel = channels.first;
+          _selectedChannel = firstChannel;
         }
       });
+
+      // Reproducimos automáticamente el primer canal.
+      if (firstChannel != null) {
+        await _showNativeOverlay(firstChannel!);
+      } else {
+        await TvOverlayService.hide();
+      }
     } catch (e) {
       if (!mounted) return;
 
       setState(() {
         _loadingChannels = false;
         _channels = [];
+        _selectedChannel = null;
       });
+
+      await TvOverlayService.hide();
     }
   }
 
-  void _selectChannel(LiveChannel channel) {
+  // ============================================================
+  // SELECCIÓN DE CANAL
+  // ============================================================
+
+  Future<void> _selectChannel(
+    LiveChannel channel,
+  ) async {
+    if (_selectedChannel?.id == channel.id) {
+      return;
+    }
+
     setState(() {
       _selectedChannel = channel;
     });
+
+    await _showNativeOverlay(channel);
   }
+
+  // ============================================================
+  // OVERLAY NATIVO ANDROID
+  // ============================================================
+
+  Future<void> _showNativeOverlay(
+    LiveChannel channel,
+  ) async {
+    try {
+      debugPrint(
+        'TV OVERLAY: solicitando URL '
+        'canal=${channel.name} id=${channel.id}',
+      );
+
+      final url = await _service.getStreamUrl(
+        username: widget.username,
+        password: widget.password,
+        streamId: channel.id,
+        output: 'm3u8',
+      );
+
+      if (!mounted) return;
+
+      // Si mientras obteníamos la URL el usuario cambió
+      // nuevamente de canal, descartamos esta respuesta.
+      if (_selectedChannel?.id != channel.id) {
+        debugPrint(
+          'TV OVERLAY: URL descartada '
+          'porque cambió el canal seleccionado.',
+        );
+        return;
+      }
+
+      debugPrint(
+        'TV OVERLAY: reproduciendo '
+        '${channel.name} (${channel.id})',
+      );
+
+      await TvOverlayService.showPlayer(
+        url: url,
+
+        // Coordenadas TEMPORALES.
+        // Son las mismas con las que comprobamos que el
+        // rectángulo rojo aparece encima del panel EN VIVO.
+        x: 700,
+        y: 220,
+        width: 500,
+        height: 350,
+      );
+    } catch (e) {
+      debugPrint(
+        'TV OVERLAY ERROR: $e',
+      );
+
+      await TvOverlayService.hide();
+    }
+  }
+
+  // ============================================================
+  // CICLO DE VIDA
+  // ============================================================
+
+  @override
+  void dispose() {
+    // No usamos await en dispose.
+    // Solo pedimos al lado nativo que oculte el overlay.
+    TvOverlayService.hide();
+
+    super.dispose();
+  }
+
+  // ============================================================
+  // UI PRINCIPAL
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -163,6 +287,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
+  // ============================================================
+  // CATEGORÍAS
+  // ============================================================
+
   Widget _buildCategories() {
     if (_loadingCategories) {
       return const Center(
@@ -197,11 +325,15 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(
+        vertical: 10,
+      ),
       itemCount: _categories.length,
       itemBuilder: (context, index) {
         final category = _categories[index];
-        final selected = _selectedCategory?.id == category.id;
+
+        final selected =
+            _selectedCategory?.id == category.id;
 
         return Padding(
           padding: const EdgeInsets.symmetric(
@@ -214,19 +346,28 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             child: InkWell(
               autofocus: index == 0,
               borderRadius: BorderRadius.circular(10),
-              focusColor: AppColors.primary.withValues(alpha: .30),
-              onTap: () => _selectCategory(category),
+              focusColor:
+                  AppColors.primary.withValues(
+                alpha: .30,
+              ),
+              onTap: () => _selectCategory(
+                category,
+              ),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration:
+                    const Duration(milliseconds: 150),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 14,
                 ),
                 decoration: BoxDecoration(
                   color: selected
-                      ? AppColors.primary.withValues(alpha: .22)
+                      ? AppColors.primary.withValues(
+                          alpha: .22,
+                        )
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius:
+                      BorderRadius.circular(10),
                   border: Border.all(
                     color: selected
                         ? AppColors.primary
@@ -244,17 +385,20 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                           ? AppColors.primary
                           : AppColors.textSecondary,
                     ),
+
                     const SizedBox(width: 10),
 
                     Expanded(
                       child: Text(
                         category.name,
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        overflow:
+                            TextOverflow.ellipsis,
                         style: TextStyle(
                           color: selected
                               ? AppColors.textPrimary
-                              : AppColors.textSecondary,
+                              : AppColors
+                                  .textSecondary,
                           fontSize: 15,
                           fontWeight: selected
                               ? FontWeight.w700
@@ -271,6 +415,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       },
     );
   }
+
+  // ============================================================
+  // CANALES
+  // ============================================================
 
   Widget _buildChannels() {
     if (_selectedCategory == null) {
@@ -302,11 +450,15 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 10),
+      padding: const EdgeInsets.symmetric(
+        vertical: 10,
+      ),
       itemCount: _channels.length,
       itemBuilder: (context, index) {
         final channel = _channels[index];
-        final selected = _selectedChannel?.id == channel.id;
+
+        final selected =
+            _selectedChannel?.id == channel.id;
 
         return Padding(
           padding: const EdgeInsets.symmetric(
@@ -315,21 +467,30 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           ),
           child: Material(
             color: Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius:
+                BorderRadius.circular(10),
             child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              focusColor: AppColors.primary.withValues(alpha: .30),
+              borderRadius:
+                  BorderRadius.circular(10),
+              focusColor:
+                  AppColors.primary.withValues(
+                alpha: .30,
+              ),
               onTap: () => _selectChannel(channel),
               child: Container(
-                padding: const EdgeInsets.symmetric(
+                padding:
+                    const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
                   color: selected
-                      ? Colors.white.withValues(alpha: .08)
+                      ? Colors.white.withValues(
+                          alpha: .08,
+                        )
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius:
+                      BorderRadius.circular(10),
                 ),
                 child: Row(
                   children: [
@@ -339,16 +500,20 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
                         children: [
                           Text(
                             channel.name,
                             maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            overflow:
+                                TextOverflow.ellipsis,
                             style: TextStyle(
                               color: selected
-                                  ? AppColors.textPrimary
-                                  : AppColors.textSecondary,
+                                  ? AppColors
+                                      .textPrimary
+                                  : AppColors
+                                      .textSecondary,
                               fontSize: 15,
                               fontWeight: selected
                                   ? FontWeight.w700
@@ -361,9 +526,11 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                           const Text(
                             'EN VIVO',
                             style: TextStyle(
-                              color: Color(0xFF22C55E),
+                              color:
+                                  Color(0xFF22C55E),
                               fontSize: 10,
-                              fontWeight: FontWeight.bold,
+                              fontWeight:
+                                  FontWeight.bold,
                             ),
                           ),
                         ],
@@ -379,14 +546,19 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
-  Widget _channelLogo(LiveChannel channel) {
-    if (channel.icon == null || channel.icon!.isEmpty) {
+  Widget _channelLogo(
+    LiveChannel channel,
+  ) {
+    if (channel.icon == null ||
+        channel.icon!.isEmpty) {
       return Container(
         width: 46,
         height: 46,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(8),
+          color:
+              Colors.white.withValues(alpha: .08),
+          borderRadius:
+              BorderRadius.circular(8),
         ),
         child: const Icon(
           Icons.live_tv_rounded,
@@ -401,7 +573,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius:
+            BorderRadius.circular(8),
       ),
       child: Image.network(
         channel.icon!,
@@ -415,6 +588,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // PREVIEW
+  // ============================================================
 
   Widget _buildPreview() {
     final channel = _selectedChannel;
@@ -443,28 +620,28 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-            Expanded(
-                child: TvPreviewPlayer(
-                    key: ValueKey(channel.id),
-                    username: widget.username,
-                    password: widget.password,
-                    channel: channel,
-                ),
-            ),
-        ],
-      ),
+    // Este espacio queda intencionalmente libre.
+    //
+    // El video ya NO se pinta mediante PlatformView.
+    // Android coloca el TextureView + ExoPlayer encima
+    // de esta zona mediante TvOverlayController.
+    return const Padding(
+      padding: EdgeInsets.all(18),
+      child: SizedBox.expand(),
     );
   }
+
+  // ============================================================
+  // TOP BAR
+  // ============================================================
 
   Widget _buildTopBar() {
     return Container(
       height: 82,
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 32,
+      ),
       color: AppColors.surface,
       child: Row(
         children: [
@@ -512,6 +689,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
+  // ============================================================
+  // PANEL
+  // ============================================================
+
   Widget _buildPanel({
     required String title,
     required Widget child,
@@ -519,16 +700,25 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.card,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius:
+            BorderRadius.circular(18),
         border: Border.all(
-          color: Colors.white.withValues(alpha: .08),
+          color:
+              Colors.white.withValues(alpha: .08),
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment:
+            CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+            padding:
+                const EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              14,
+            ),
             child: Text(
               title,
               style: const TextStyle(
@@ -542,7 +732,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
           Divider(
             height: 1,
-            color: Colors.white.withValues(alpha: .08),
+            color:
+                Colors.white.withValues(alpha: .08),
           ),
 
           Expanded(

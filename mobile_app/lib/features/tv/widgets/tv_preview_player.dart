@@ -56,6 +56,8 @@ class _TvPreviewPlayerState extends State<TvPreviewPlayer> {
   }
 
   Future<void> _loadChannel() async {
+    if (!mounted) return;
+
     setState(() {
       _loading = true;
       _error = null;
@@ -72,7 +74,8 @@ class _TvPreviewPlayerState extends State<TvPreviewPlayer> {
       );
 
       debugPrint(
-        'TV PREVIEW: canal=${widget.channel.name} id=${widget.channel.id}',
+        'TV PREVIEW: canal=${widget.channel.name} '
+        'id=${widget.channel.id}',
       );
 
       await _player.open(
@@ -93,8 +96,12 @@ class _TvPreviewPlayerState extends State<TvPreviewPlayer> {
       setState(() {
         _loading = false;
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('TV PREVIEW ERROR: $e');
+
+      debugPrintStack(
+        stackTrace: stackTrace,
+      );
 
       if (!mounted) return;
 
@@ -115,7 +122,7 @@ class _TvPreviewPlayerState extends State<TvPreviewPlayer> {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: Container(
+      child: ColoredBox(
         color: Colors.black,
         child: Stack(
           fit: StackFit.expand,
@@ -127,8 +134,8 @@ class _TvPreviewPlayerState extends State<TvPreviewPlayer> {
             ),
 
             if (_loading)
-              Container(
-                color: Colors.black.withValues(alpha: .60),
+              ColoredBox(
+                color: Colors.black54,
                 child: const Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -149,36 +156,39 @@ class _TvPreviewPlayerState extends State<TvPreviewPlayer> {
               ),
 
             if (_error != null)
-              Container(
-                color: Colors.black.withValues(alpha: .85),
-                padding: const EdgeInsets.all(20),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.error_outline_rounded,
-                        color: AppColors.error,
-                        size: 42,
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'No se pudo reproducir el canal',
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.bold,
+              ColoredBox(
+                color: Colors.black87,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.error_outline_rounded,
+                          color: AppColors.error,
+                          size: 42,
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 12,
+                        const SizedBox(height: 12),
+                        const Text(
+                          'No se pudo reproducir el canal',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 8),
+                        Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
