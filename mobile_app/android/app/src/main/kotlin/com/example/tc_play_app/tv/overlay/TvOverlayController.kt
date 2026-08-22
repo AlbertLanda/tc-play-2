@@ -4,7 +4,7 @@ import android.app.Activity
 import android.graphics.Color
 import android.util.Log
 import android.view.Gravity
-import android.view.TextureView
+import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
 import androidx.media3.common.MediaItem
@@ -15,6 +15,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 
 class TvOverlayController(
     private val activity: Activity
@@ -25,10 +26,16 @@ class TvOverlayController(
     }
 
     private var container: FrameLayout? = null
-    private var textureView: TextureView? = null
+    private var surfaceView: SurfaceView? = null
+
+    // Ahora el player ya NO es permanente.
+    // Cada cambio real de canal genera una sesión nueva.
     private var player: ExoPlayer? = null
 
     private var currentUrl: String? = null
+
+    // Solo para poder identificar en consola cada sesión.
+    private var playerGeneration: Int = 0
 
     fun showPlayer(
         url: String,
@@ -50,7 +57,7 @@ class TvOverlayController(
                 return@runOnUiThread
             }
 
-            ensurePlayerCreated(decorView)
+            ensureOverlayCreated(decorView)
 
             val params = FrameLayout.LayoutParams(
                 width,
@@ -66,47 +73,63 @@ class TvOverlayController(
 
             Log.i(
                 TAG,
-                "Player mostrado x=$x y=$y width=$width height=$height"
+                "Overlay mostrado " +
+                    "x=$x y=$y width=$width height=$height"
             )
 
-            if (currentUrl != url) {
-                play(url)
+            if (currentUrl == url && player != null) {
+                Log.i(
+                    TAG,
+                    "La URL actual ya está reproduciéndose. Se ignora."
+                )
+                return@runOnUiThread
             }
+
+            switchChannel(url)
         }
     }
 
-    private fun ensurePlayerCreated(
+    // ============================================================
+    // CREACIÓN DEL OVERLAY VISUAL
+    // ============================================================
+
+    private fun ensureOverlayCreated(
         decorView: FrameLayout
     ) {
-        if (container != null &&
-            textureView != null &&
-            player != null
+        if (
+            container != null &&
+            surfaceView != null
         ) {
             return
         }
 
         Log.i(
             TAG,
-            "Creando overlay TextureView + ExoPlayer"
+            "Creando overlay visual nativo con SurfaceView"
         )
 
-        val nativeContainer = FrameLayout(activity).apply {
-            setBackgroundColor(Color.BLACK)
+        val nativeContainer =
+            FrameLayout(activity).apply {
 
-            // No queremos que este overlay robe el foco al D-pad.
-            isFocusable = false
-            isFocusableInTouchMode = false
-            isClickable = false
-        }
+                setBackgroundColor(Color.BLACK)
 
-        val nativeTextureView = TextureView(activity).apply {
-            isOpaque = true
-            isFocusable = false
-            isClickable = false
-        }
+                isFocusable = false
+                isFocusableInTouchMode = false
+                isClickable = false
+            }
+
+        val nativeSurfaceView =
+            SurfaceView(activity).apply {
+
+                setZOrderMediaOverlay(true)
+
+                isFocusable = false
+                isFocusableInTouchMode = false
+                isClickable = false
+            }
 
         nativeContainer.addView(
-            nativeTextureView,
+            nativeSurfaceView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -114,6 +137,67 @@ class TvOverlayController(
         )
 
         decorView.addView(nativeContainer)
+
+        container = nativeContainer
+        surfaceView = nativeSurfaceView
+
+        Log.i(
+            TAG,
+            "Overlay SurfaceView creado"
+        )
+    }
+
+    // ============================================================
+    // CAMBIO DE CANAL
+    // ============================================================
+
+    private fun switchChannel(
+        url: String
+    ) {
+        val currentSurfaceView =
+            surfaceView ?: run {
+
+                Log.e(
+                    TAG,
+                    "No existe SurfaceView para reproducir."
+                )
+
+                return
+            }
+
+        Log.i(
+            TAG,
+            "========================================"
+        )
+
+        Log.i(
+            TAG,
+            "CAMBIO DE CANAL"
+        )
+
+        Log.i(
+            TAG,
+            "Liberando completamente sesión anterior"
+        )
+
+        // --------------------------------------------------------
+        // 1. MATAMOS COMPLETAMENTE LA SESIÓN ANTERIOR
+        // --------------------------------------------------------
+
+        releaseCurrentPlayer()
+
+        // --------------------------------------------------------
+        // 2. CREAMOS UNA SESIÓN COMPLETAMENTE NUEVA
+        // --------------------------------------------------------
+
+        playerGeneration++
+
+        val generation = playerGeneration
+
+        Log.i(
+            TAG,
+            "Creando PLAYER #$generation"
+        )
 
         val httpFactory =
             DefaultHttpDataSource.Factory()
@@ -128,7 +212,7 @@ class TvOverlayController(
                     )
                 )
 
-        val exoPlayer =
+        val newPlayer =
             ExoPlayer.Builder(activity)
                 .setMediaSourceFactory(
                     DefaultMediaSourceFactory(
@@ -137,83 +221,132 @@ class TvOverlayController(
                 )
                 .build()
 
-        exoPlayer.setVideoTextureView(
-            nativeTextureView
+        // Guardamos el nuevo player antes de comenzar.
+        player = newPlayer
+        currentUrl = url
+
+        newPlayer.setVideoSurfaceView(
+            currentSurfaceView
         )
 
-        exoPlayer.addListener(
+        Log.i(
+            TAG,
+            "PLAYER #$generation conectado al SurfaceView"
+        )
+
+        // --------------------------------------------------------
+        // LOGS DE DIAGNÓSTICO
+        // --------------------------------------------------------
+
+        newPlayer.addListener(
             object : Player.Listener {
 
                 override fun onPlaybackStateChanged(
                     playbackState: Int
                 ) {
+                    // Si esta sesión ya dejó de ser la actual,
+                    // ignoramos callbacks atrasados.
+                    if (player !== newPlayer) {
+                        return
+                    }
+
                     val state = when (playbackState) {
-                        Player.STATE_IDLE -> "IDLE"
+                        Player.STATE_IDLE ->
+                            "IDLE"
+
                         Player.STATE_BUFFERING ->
                             "BUFFERING"
 
-                        Player.STATE_READY -> "READY"
-                        Player.STATE_ENDED -> "ENDED"
-                        else -> "UNKNOWN"
+                        Player.STATE_READY ->
+                            "READY"
+
+                        Player.STATE_ENDED ->
+                            "ENDED"
+
+                        else ->
+                            "UNKNOWN"
                     }
 
                     Log.i(
                         TAG,
-                        "Estado=$state " +
+                        "PLAYER #$generation " +
+                            "Estado=$state " +
                             "playWhenReady=" +
-                            exoPlayer.playWhenReady
+                            newPlayer.playWhenReady
                     )
                 }
 
                 override fun onVideoSizeChanged(
                     videoSize: VideoSize
                 ) {
+                    if (player !== newPlayer) {
+                        return
+                    }
+
                     Log.i(
                         TAG,
-                        "VideoSize=" +
+                        "PLAYER #$generation " +
+                            "VideoSize=" +
                             "${videoSize.width}x" +
                             "${videoSize.height}"
                     )
                 }
 
                 override fun onRenderedFirstFrame() {
+                    if (player !== newPlayer) {
+                        return
+                    }
+
                     Log.i(
                         TAG,
-                        "***** PRIMER FRAME OVERLAY NATIVO *****"
+                        "PLAYER #$generation " +
+                            "***** PRIMER FRAME *****"
                     )
                 }
 
                 override fun onPlayerError(
                     error: PlaybackException
                 ) {
+                    if (player !== newPlayer) {
+                        return
+                    }
+
                     Log.e(
                         TAG,
-                        "ERROR=${error.errorCodeName}",
+                        "PLAYER #$generation " +
+                            "ERROR=${error.errorCodeName}",
                         error
                     )
                 }
             }
         )
 
-        container = nativeContainer
-        textureView = nativeTextureView
-        player = exoPlayer
+        newPlayer.addAnalyticsListener(
+            object : AnalyticsListener {
 
-        Log.i(
-            TAG,
-            "Overlay TextureView + ExoPlayer creado"
+                override fun onDroppedVideoFrames(
+                    eventTime: AnalyticsListener.EventTime,
+                    droppedFrames: Int,
+                    elapsedMs: Long
+                ) {
+                    if (player !== newPlayer) {
+                        return
+                    }
+
+                    Log.w(
+                        TAG,
+                        "PLAYER #$generation " +
+                            "DROPPED_FRAMES=" +
+                            "$droppedFrames " +
+                            "periodo=${elapsedMs}ms"
+                    )
+                }
+            }
         )
-    }
 
-    private fun play(url: String) {
-        val exoPlayer = player ?: return
-
-        Log.i(
-            TAG,
-            "Reproduciendo URL en overlay nativo"
-        )
-
-        currentUrl = url
+        // --------------------------------------------------------
+        // 3. CARGAMOS EL NUEVO STREAM
+        // --------------------------------------------------------
 
         val mediaItem =
             MediaItem.Builder()
@@ -223,16 +356,131 @@ class TvOverlayController(
                 )
                 .build()
 
-        exoPlayer.setMediaItem(mediaItem)
-        exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
+        newPlayer.setMediaItem(
+            mediaItem
+        )
+
+        newPlayer.prepare()
+
+        newPlayer.playWhenReady = true
+
+        Log.i(
+            TAG,
+            "PLAYER #$generation reproducción solicitada"
+        )
+
+        Log.i(
+            TAG,
+            "========================================"
+        )
     }
+
+    // ============================================================
+    // LIBERACIÓN DE PLAYER
+    // ============================================================
+
+    private fun releaseCurrentPlayer() {
+        val oldPlayer = player
+        val currentSurfaceView = surfaceView
+
+        if (oldPlayer == null) {
+            Log.i(
+                TAG,
+                "No había una sesión anterior que liberar"
+            )
+
+            return
+        }
+
+        Log.i(
+            TAG,
+            "Liberando ExoPlayer anterior"
+        )
+
+        try {
+            // Evitamos que siga intentando reproducir.
+            oldPlayer.playWhenReady = false
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "No se pudo desactivar playWhenReady: $e"
+            )
+        }
+
+        try {
+            oldPlayer.pause()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "No se pudo pausar player anterior: $e"
+            )
+        }
+
+        try {
+            oldPlayer.stop()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "No se pudo detener player anterior: $e"
+            )
+        }
+
+        try {
+            if (currentSurfaceView != null) {
+                oldPlayer.clearVideoSurfaceView(
+                    currentSurfaceView
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "No se pudo liberar SurfaceView anterior: $e"
+            )
+        }
+
+        try {
+            oldPlayer.clearMediaItems()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "No se pudieron limpiar MediaItems: $e"
+            )
+        }
+
+        try {
+            oldPlayer.release()
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "Error liberando ExoPlayer: $e"
+            )
+        }
+
+        // Muy importante:
+        // quitamos inmediatamente la referencia a la sesión anterior.
+        player = null
+
+        Log.i(
+            TAG,
+            "ExoPlayer anterior liberado completamente"
+        )
+    }
+
+    // ============================================================
+    // OCULTAR
+    // ============================================================
 
     fun hide() {
         activity.runOnUiThread {
-            container?.visibility = View.GONE
 
-            player?.pause()
+            container?.visibility =
+                View.GONE
+
+            // Al salir de TV o cambiar de categoría,
+            // liberamos también la sesión multimedia.
+            releaseCurrentPlayer()
+
+            currentUrl = null
 
             Log.i(
                 TAG,
@@ -241,37 +489,39 @@ class TvOverlayController(
         }
     }
 
+    // ============================================================
+    // DESTRUCCIÓN TOTAL
+    // ============================================================
+
     fun dispose() {
         activity.runOnUiThread {
 
             Log.i(
                 TAG,
-                "Liberando overlay nativo"
+                "Liberando completamente overlay nativo"
             )
 
-            val currentPlayer = player
-            val currentTexture = textureView
+            releaseCurrentPlayer()
 
-            if (
-                currentPlayer != null &&
-                currentTexture != null
-            ) {
-                currentPlayer.clearVideoTextureView(
-                    currentTexture
+            container?.let { view ->
+
+                val parent =
+                    view.parent as? FrameLayout
+
+                parent?.removeView(
+                    view
                 )
             }
 
-            currentPlayer?.release()
-
-            container?.let { view ->
-                (view.parent as? FrameLayout)
-                    ?.removeView(view)
-            }
-
             player = null
-            textureView = null
+            surfaceView = null
             container = null
             currentUrl = null
+
+            Log.i(
+                TAG,
+                "Overlay nativo eliminado"
+            )
         }
     }
 }

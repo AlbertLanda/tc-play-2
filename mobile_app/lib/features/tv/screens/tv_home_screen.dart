@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -23,6 +25,10 @@ class TvHomeScreen extends StatefulWidget {
 class _TvHomeScreenState extends State<TvHomeScreen> {
   final LiveTvService _service = LiveTvService();
 
+  // Evita abrir varios streams seguidos cuando el usuario
+  // navega rápidamente por la lista de canales.
+  Timer? _channelDebounce;
+
   List<LiveCategory> _categories = [];
   List<LiveChannel> _channels = [];
 
@@ -38,8 +44,6 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   void initState() {
     super.initState();
 
-    // Ya NO mostramos el rectángulo rojo aquí.
-    // El overlay se mostrará cuando tengamos un canal y una URL real.
     _loadCategories();
   }
 
@@ -72,7 +76,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
       setState(() {
         _loadingCategories = false;
-        _error = e.toString().replaceFirst('Exception: ', '');
+        _error = e.toString().replaceFirst(
+          'Exception: ',
+          '',
+        );
       });
 
       await TvOverlayService.hide();
@@ -86,8 +93,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   Future<void> _selectCategory(
     LiveCategory category,
   ) async {
-    // Ocultamos momentáneamente el reproductor mientras
-    // cargamos los canales de la nueva categoría.
+    // Si había un cambio de canal pendiente, lo cancelamos.
+    _channelDebounce?.cancel();
+    _channelDebounce = null;
+
+    // Ocultamos temporalmente el video mientras se carga
+    // la nueva categoría.
     await TvOverlayService.hide();
 
     if (!mounted) return;
@@ -97,6 +108,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       _selectedChannel = null;
       _channels = [];
       _loadingChannels = true;
+      _error = null;
     });
 
     try {
@@ -108,8 +120,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
       if (!mounted) return;
 
-      // Evita que una respuesta antigua reemplace la categoría
-      // si el usuario se movió rápidamente a otra.
+      // Protección contra respuestas atrasadas.
+      //
+      // Si mientras esperábamos al backend el usuario cambió
+      // nuevamente de categoría, descartamos esta respuesta.
       if (_selectedCategory?.id != category.id) {
         return;
       }
@@ -126,9 +140,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         }
       });
 
-      // Reproducimos automáticamente el primer canal.
+      // El primer canal de una categoría sí se reproduce
+      // inmediatamente. Aquí no necesitamos debounce.
       if (firstChannel != null) {
-        await _showNativeOverlay(firstChannel!);
+        await _showNativeOverlay(
+          firstChannel!,
+        );
       } else {
         await TvOverlayService.hide();
       }
@@ -146,12 +163,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   }
 
   // ============================================================
-  // SELECCIÓN DE CANAL
+  // SELECCIÓN MANUAL DE CANAL
   // ============================================================
 
-  Future<void> _selectChannel(
+  void _selectChannel(
     LiveChannel channel,
-  ) async {
+  ) {
     if (_selectedChannel?.id == channel.id) {
       return;
     }
@@ -160,7 +177,28 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       _selectedChannel = channel;
     });
 
-    await _showNativeOverlay(channel);
+    // Si todavía estaba esperando otro canal, lo cancelamos.
+    _channelDebounce?.cancel();
+
+    // Esperamos 500 ms.
+    //
+    // Si el usuario sigue navegando por la lista, este Timer
+    // será reemplazado y solamente se reproducirá finalmente
+    // el último canal seleccionado.
+    _channelDebounce = Timer(
+      const Duration(milliseconds: 500),
+      () {
+        if (!mounted) return;
+
+        // Segunda protección:
+        // verificamos que el canal siga siendo el seleccionado.
+        if (_selectedChannel?.id != channel.id) {
+          return;
+        }
+
+        _showNativeOverlay(channel);
+      },
+    );
   }
 
   // ============================================================
@@ -185,13 +223,16 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
       if (!mounted) return;
 
-      // Si mientras obteníamos la URL el usuario cambió
-      // nuevamente de canal, descartamos esta respuesta.
+      // Puede ocurrir que la URL tarde y el usuario ya haya
+      // seleccionado otro canal.
+      //
+      // En ese caso no enviamos esta URL antigua a ExoPlayer.
       if (_selectedChannel?.id != channel.id) {
         debugPrint(
           'TV OVERLAY: URL descartada '
           'porque cambió el canal seleccionado.',
         );
+
         return;
       }
 
@@ -203,9 +244,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       await TvOverlayService.showPlayer(
         url: url,
 
-        // Coordenadas TEMPORALES.
-        // Son las mismas con las que comprobamos que el
-        // rectángulo rojo aparece encima del panel EN VIVO.
+        // TEMPORAL:
+        // estas coordenadas pertenecen al laboratorio que ya
+        // comprobamos físicamente en las TVs.
+        //
+        // Más adelante las calcularemos automáticamente según
+        // la posición real del panel EN VIVO.
         x: 700,
         y: 220,
         width: 500,
@@ -216,7 +260,14 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         'TV OVERLAY ERROR: $e',
       );
 
-      await TvOverlayService.hide();
+      // Solo ocultamos si este sigue siendo el canal seleccionado.
+      //
+      // Así un error atrasado de un canal anterior no apaga
+      // accidentalmente el canal nuevo.
+      if (mounted &&
+          _selectedChannel?.id == channel.id) {
+        await TvOverlayService.hide();
+      }
     }
   }
 
@@ -226,8 +277,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   @override
   void dispose() {
-    // No usamos await en dispose.
-    // Solo pedimos al lado nativo que oculte el overlay.
+    // Evita que un Timer intente abrir un canal después
+    // de haber abandonado TvHomeScreen.
+    _channelDebounce?.cancel();
+    _channelDebounce = null;
+
+    // No usamos await dentro de dispose().
     TvOverlayService.hide();
 
     super.dispose();
@@ -257,9 +312,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                         child: _buildCategories(),
                       ),
                     ),
-
                     const SizedBox(width: 18),
-
                     Expanded(
                       flex: 3,
                       child: _buildPanel(
@@ -267,9 +320,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                         child: _buildChannels(),
                       ),
                     ),
-
                     const SizedBox(width: 18),
-
                     Expanded(
                       flex: 5,
                       child: _buildPanel(
@@ -342,29 +393,31 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           ),
           child: Material(
             color: Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius:
+                BorderRadius.circular(10),
             child: InkWell(
               autofocus: index == 0,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius:
+                  BorderRadius.circular(10),
               focusColor:
                   AppColors.primary.withValues(
                 alpha: .30,
               ),
-              onTap: () => _selectCategory(
-                category,
-              ),
+              onTap: () {
+                _selectCategory(category);
+              },
               child: AnimatedContainer(
                 duration:
                     const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(
+                padding:
+                    const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 14,
                 ),
                 decoration: BoxDecoration(
                   color: selected
-                      ? AppColors.primary.withValues(
-                          alpha: .22,
-                        )
+                      ? AppColors.primary
+                          .withValues(alpha: .22)
                       : Colors.transparent,
                   borderRadius:
                       BorderRadius.circular(10),
@@ -385,9 +438,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                           ? AppColors.primary
                           : AppColors.textSecondary,
                     ),
-
                     const SizedBox(width: 10),
-
                     Expanded(
                       child: Text(
                         category.name,
@@ -476,7 +527,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                   AppColors.primary.withValues(
                 alpha: .30,
               ),
-              onTap: () => _selectChannel(channel),
+              onTap: () {
+                _selectChannel(channel);
+              },
               child: Container(
                 padding:
                     const EdgeInsets.symmetric(
@@ -485,9 +538,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 ),
                 decoration: BoxDecoration(
                   color: selected
-                      ? Colors.white.withValues(
-                          alpha: .08,
-                        )
+                      ? Colors.white
+                          .withValues(alpha: .08)
                       : Colors.transparent,
                   borderRadius:
                       BorderRadius.circular(10),
@@ -495,9 +547,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 child: Row(
                   children: [
                     _channelLogo(channel),
-
                     const SizedBox(width: 12),
-
                     Expanded(
                       child: Column(
                         crossAxisAlignment:
@@ -520,9 +570,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                                   : FontWeight.w500,
                             ),
                           ),
-
                           const SizedBox(height: 3),
-
                           const Text(
                             'EN VIVO',
                             style: TextStyle(
@@ -555,8 +603,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         width: 46,
         height: 46,
         decoration: BoxDecoration(
-          color:
-              Colors.white.withValues(alpha: .08),
+          color: Colors.white
+              .withValues(alpha: .08),
           borderRadius:
               BorderRadius.circular(8),
         ),
@@ -579,7 +627,11 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       child: Image.network(
         channel.icon!,
         fit: BoxFit.contain,
-        errorBuilder: (_, _, _) {
+        errorBuilder: (
+          context,
+          error,
+          stackTrace,
+        ) {
           return const Icon(
             Icons.live_tv_rounded,
             color: Colors.black54,
@@ -620,11 +672,19 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       );
     }
 
-    // Este espacio queda intencionalmente libre.
+    // El área queda vacía deliberadamente.
     //
-    // El video ya NO se pinta mediante PlatformView.
-    // Android coloca el TextureView + ExoPlayer encima
-    // de esta zona mediante TvOverlayController.
+    // Flutter dibuja el panel, pero el video real está siendo
+    // colocado encima por Android mediante:
+    //
+    // TvOverlayController
+    //      ↓
+    // TextureView
+    //      ↓
+    // ExoPlayer
+    //
+    // Así evitamos el problema de PlatformView/SurfaceProducer
+    // que causaba audio sin imagen en estas TVs.
     return const Padding(
       padding: EdgeInsets.all(18),
       child: SizedBox.expand(),
@@ -638,8 +698,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   Widget _buildTopBar() {
     return Container(
       height: 82,
-      padding:
-          const EdgeInsets.symmetric(
+      padding: const EdgeInsets.symmetric(
         horizontal: 32,
       ),
       color: AppColors.surface,
@@ -649,9 +708,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             'assets/images/tc_play_logo.png',
             height: 46,
           ),
-
           const SizedBox(width: 14),
-
           const Text(
             'TC PLAY',
             style: TextStyle(
@@ -660,25 +717,19 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               fontWeight: FontWeight.w800,
             ),
           ),
-
           const Spacer(),
-
           const Icon(
             Icons.search_rounded,
             color: AppColors.textSecondary,
             size: 28,
           ),
-
           const SizedBox(width: 28),
-
           const Icon(
             Icons.person_outline_rounded,
             color: AppColors.textSecondary,
             size: 28,
           ),
-
           const SizedBox(width: 28),
-
           const Icon(
             Icons.settings_outlined,
             color: AppColors.textSecondary,
@@ -729,13 +780,11 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               ),
             ),
           ),
-
           Divider(
             height: 1,
             color:
                 Colors.white.withValues(alpha: .08),
           ),
-
           Expanded(
             child: child,
           ),
