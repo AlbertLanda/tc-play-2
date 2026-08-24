@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.example.tc_play_app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

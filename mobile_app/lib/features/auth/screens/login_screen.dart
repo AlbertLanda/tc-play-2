@@ -18,6 +18,7 @@ import '../../../core/widgets/primary_button.dart';
 import '../../home/screens/home_screen.dart';
 import '../../tv/screens/tv_home_screen.dart';
 import '../services/auth_service.dart';
+import '../services/tv_session_service.dart';
 
 /// Contacto de soporte de una sede, usado en la recuperación de contraseña.
 class _SupportContact {
@@ -424,14 +425,24 @@ class _TvKeyboardDialog extends StatefulWidget {
 }
 
 class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
-  late String _value;
+  // El valor escrito vive en un ValueNotifier, separado del estado del
+  // widget: así cada tecla solo actualiza el pequeño recuadro de texto
+  // (vía ValueListenableBuilder) en vez de disparar un setState que
+  // reconstruya toda la cuadrícula de teclas en cada pulsación, que es
+  // lo que causaba la sensación de retraso al escribir.
+  late final ValueNotifier<String> _valueNotifier;
   bool _upperCase = false;
 
-  static const List<String> _letters = [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
-    'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
-    'q', 'r', 's', 't', 'u', 'v', 'w', 'x',
-    'y', 'z',
+  // Distribución QWERTY (no alfabética), como pide la tarea, para que
+  // la navegación con D-pad sea la que cualquier usuario ya conoce.
+  static const List<String> _qwertyRow1 = [
+    'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p',
+  ];
+  static const List<String> _qwertyRow2 = [
+    'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l',
+  ];
+  static const List<String> _qwertyRow3 = [
+    'z', 'x', 'c', 'v', 'b', 'n', 'm',
   ];
 
   static const List<String> _numbers = [
@@ -442,28 +453,65 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
     '@', '.', '_', '-', '+', '#', '*', '/', '!', '?',
   ];
 
+  // La cuadrícula de teclas de letras depende de `_upperCase`, así que
+  // se reconstruye solo cuando cambia mayúsculas/minúsculas (algo poco
+  // frecuente), no en cada letra escrita.
+  late List<Widget> _numberRow;
+  late List<Widget> _letterRow1;
+  late List<Widget> _letterRow2;
+  late List<Widget> _letterRow3;
+  late List<Widget> _symbolRow;
+
   @override
   void initState() {
     super.initState();
-    _value = widget.initialValue;
+    _valueNotifier = ValueNotifier<String>(widget.initialValue);
+    _buildStaticRows();
+  }
+
+  @override
+  void dispose() {
+    _valueNotifier.dispose();
+    super.dispose();
+  }
+
+  void _buildStaticRows() {
+    _numberRow = _numbers.map((n) {
+      return _keyboardKey(label: n, onTap: () => _append(n));
+    }).toList();
+
+    _letterRow1 = _qwertyRow1.map((letter) => _letterKey(letter)).toList();
+    _letterRow2 = _qwertyRow2.map((letter) => _letterKey(letter)).toList();
+    _letterRow3 = _qwertyRow3.map((letter) => _letterKey(letter)).toList();
+
+    _symbolRow = _symbols.map((symbol) {
+      return _keyboardKey(label: symbol, onTap: () => _append(symbol));
+    }).toList();
+  }
+
+  Widget _letterKey(String letter) {
+    final value = _upperCase ? letter.toUpperCase() : letter;
+    return _keyboardKey(label: value, onTap: () => _append(value));
   }
 
   void _append(String char) {
-    setState(() {
-      _value += char;
-    });
+    _valueNotifier.value += char;
   }
 
   void _backspace() {
-    if (_value.isEmpty) return;
-    setState(() {
-      _value = _value.substring(0, _value.length - 1);
-    });
+    final current = _valueNotifier.value;
+    if (current.isEmpty) return;
+    _valueNotifier.value = current.substring(0, current.length - 1);
   }
 
   void _clear() {
+    _valueNotifier.value = '';
+  }
+
+  void _toggleCase() {
     setState(() {
-      _value = '';
+      _upperCase = !_upperCase;
+      _buildStaticRows();
     });
   }
 
@@ -478,36 +526,11 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
       flex: flex,
       child: Padding(
         padding: const EdgeInsets.all(4),
-        child: Material(
-          color: primary
-              ? AppColors.accent
-              : Colors.white.withValues(alpha: .08),
-          borderRadius: BorderRadius.circular(10),
-          child: InkWell(
-            autofocus: false,
-            canRequestFocus: true,
-            focusColor: AppColors.accent.withValues(alpha: .35),
-            borderRadius: BorderRadius.circular(10),
-            onTap: onTap,
-            child: Container(
-              height: 40,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white.withValues(alpha: .14)),
-              ),
-              child: icon == null
-                  ? Text(
-                      label,
-                      style: GoogleFonts.manrope(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    )
-                  : Icon(icon, color: Colors.white, size: 22),
-            ),
-          ),
+        child: _TvKeyButton(
+          label: label,
+          icon: icon,
+          primary: primary,
+          onTap: onTap,
         ),
       ),
     );
@@ -520,9 +543,6 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final displayValue = widget.obscure && _value.isNotEmpty
-        ? '•' * _value.length
-        : (_value.isEmpty ? 'Sin texto' : _value);
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -564,69 +584,46 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Container(
-                  height: 54,
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.symmetric(horizontal: 18),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: .28),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: .12),
-                    ),
-                  ),
-                  child: Text(
-                    displayValue,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.manrope(
-                      color: _value.isEmpty
-                          ? AppColors.textSecondary
-                          : AppColors.textPrimary,
-                      fontSize: 19,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                ValueListenableBuilder<String>(
+                  valueListenable: _valueNotifier,
+                  builder: (context, value, _) {
+                    final displayValue = widget.obscure && value.isNotEmpty
+                        ? '•' * value.length
+                        : (value.isEmpty ? 'Sin texto' : value);
+
+                    return Container(
+                      height: 54,
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: .28),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: .12),
+                        ),
+                      ),
+                      child: Text(
+                        displayValue,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.manrope(
+                          color: value.isEmpty
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 14),
 
-                _row(_numbers.map((n) {
-                  return _keyboardKey(
-                    label: n,
-                    onTap: () => _append(n),
-                  );
-                }).toList()),
-
-                _row(_letters.sublist(0, 9).map((letter) {
-                  final value = _upperCase ? letter.toUpperCase() : letter;
-                  return _keyboardKey(
-                    label: value,
-                    onTap: () => _append(value),
-                  );
-                }).toList()),
-
-                _row(_letters.sublist(9, 18).map((letter) {
-                  final value = _upperCase ? letter.toUpperCase() : letter;
-                  return _keyboardKey(
-                    label: value,
-                    onTap: () => _append(value),
-                  );
-                }).toList()),
-
-                _row(_letters.sublist(18).map((letter) {
-                  final value = _upperCase ? letter.toUpperCase() : letter;
-                  return _keyboardKey(
-                    label: value,
-                    onTap: () => _append(value),
-                  );
-                }).toList()),
-
-                _row(_symbols.map((symbol) {
-                  return _keyboardKey(
-                    label: symbol,
-                    onTap: () => _append(symbol),
-                  );
-                }).toList()),
+                _row(_numberRow),
+                _row(_letterRow1),
+                _row(_letterRow2),
+                _row(_letterRow3),
+                _row(_symbolRow),
 
                 const SizedBox(height: 6),
 
@@ -634,11 +631,7 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
                   _keyboardKey(
                     label: _upperCase ? 'abc' : 'ABC',
                     flex: 2,
-                    onTap: () {
-                      setState(() {
-                        _upperCase = !_upperCase;
-                      });
-                    },
+                    onTap: _toggleCase,
                   ),
                   _keyboardKey(
                     label: 'Espacio',
@@ -672,8 +665,12 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: PrimaryButton(
+                        // Botón "Aceptar/OK" visible del teclado: asigna
+                        // el texto escrito al campo correspondiente y
+                        // cierra el teclado.
                         text: 'Aceptar',
-                        onPressed: () => Navigator.of(context).pop<String>(_value),
+                        onPressed: () =>
+                            Navigator.of(context).pop<String>(_valueNotifier.value),
                       ),
                     ),
                   ],
@@ -681,6 +678,81 @@ class _TvKeyboardDialogState extends State<_TvKeyboardDialog> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tecla individual del teclado QWERTY de TV, con un aro de foco bien
+/// visible (borde + resplandor) para que la navegación con D-pad sea
+/// predecible a distancia de sofá, sin dejar estados de foco ambiguos.
+class _TvKeyButton extends StatefulWidget {
+  const _TvKeyButton({
+    required this.label,
+    required this.onTap,
+    this.icon,
+    this.primary = false,
+  });
+
+  final String label;
+  final IconData? icon;
+  final bool primary;
+  final VoidCallback onTap;
+
+  @override
+  State<_TvKeyButton> createState() => _TvKeyButtonState();
+}
+
+class _TvKeyButtonState extends State<_TvKeyButton> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: widget.primary
+          ? AppColors.accent
+          : Colors.white.withValues(alpha: .08),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        autofocus: false,
+        canRequestFocus: true,
+        focusColor: AppColors.accent.withValues(alpha: .35),
+        borderRadius: BorderRadius.circular(10),
+        onTap: widget.onTap,
+        onFocusChange: (focused) => setState(() => _focused = focused),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: _focused
+                  ? AppColors.accent
+                  : Colors.white.withValues(alpha: .14),
+              width: _focused ? 2.5 : 1,
+            ),
+            boxShadow: _focused
+                ? [
+                    BoxShadow(
+                      color: AppColors.accent.withValues(alpha: .55),
+                      blurRadius: 12,
+                      spreadRadius: .5,
+                    ),
+                  ]
+                : const [],
+          ),
+          child: widget.icon == null
+              ? Text(
+                  widget.label,
+                  style: GoogleFonts.manrope(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                )
+              : Icon(widget.icon, color: Colors.white, size: 22),
         ),
       ),
     );
@@ -712,18 +784,82 @@ class _LoginScreenState extends State<LoginScreen> {
 
   double _keyboardOffset = 0;
 
-  late final VoidCallback _usernameKeyboardListener;
-  late final VoidCallback _passwordKeyboardListener;
+  // Mientras se revalida una sesión de TV recordada (al abrir la app),
+  // se muestra una pantalla de verificación en vez del formulario.
+  bool _checkingTvSession = false;
 
   @override
   void initState() {
     super.initState();
     _loadRememberedUser();
 
-    _usernameKeyboardListener =
-        TvUtils.showKeyboardOnFocus(_usernameFocusNode);
-    _passwordKeyboardListener =
-        TvUtils.showKeyboardOnFocus(_passwordFocusNode);
+    // NOTA: antes se forzaba la apertura del teclado nativo del sistema
+    // (SystemChannels.textInput) cada vez que estos FocusNode ganaban
+    // foco, pensado para cuando el usuario llegaba a un TextField por
+    // control remoto. En TV, el login ya no usa TextField sino el
+    // teclado QWERTY personalizado (_openTvKeyboard), así que ese
+    // listener quedaba en conflicto con el teclado propio: por eso se
+    // quitó de aquí. El teclado nativo del móvil se sigue abriendo de
+    // forma explícita en cada campo mediante _openNativeKeyboard.
+
+    _bootstrapTvSession();
+  }
+
+  /// Si el dispositivo está configurado como TV y hay una sesión
+  /// recordada, la revalida contra el backend y entra directo a
+  /// TvHomeScreen sin pedir login. Nunca confía en los datos guardados
+  /// sin antes revalidarlos con AuthService.login().
+  Future<void> _bootstrapTvSession() async {
+    final deviceProfile = await DeviceProfileService.getSavedProfile();
+    if (!mounted || deviceProfile != DeviceProfile.tv) return;
+
+    final session = await TvSessionService.getSession();
+    if (!mounted || session == null) return;
+
+    setState(() => _checkingTvSession = true);
+
+    try {
+      final success = await _authService.login(
+        username: session.username,
+        password: session.password,
+      );
+
+      if (!mounted) return;
+
+      if (success) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => TvHomeScreen(
+              username: session.username,
+              password: session.password,
+            ),
+          ),
+        );
+        return;
+      }
+
+      // Login respondió pero sin éxito: sesión ya no es válida.
+      await TvSessionService.clearSession();
+    } catch (e) {
+      final normalizedError = e.toString().toLowerCase();
+      final isDefinitiveFailure = normalizedError.contains('usuario') ||
+          normalizedError.contains('contraseña') ||
+          normalizedError.contains('credenciales') ||
+          normalizedError.contains('inactiva');
+
+      if (isDefinitiveFailure) {
+        // Credenciales inválidas o cuenta inactiva: la sesión persistida
+        // ya no sirve, se limpia y se vuelve a pedir login.
+        await TvSessionService.clearSession();
+      }
+      // Error temporal de conectividad: no se toca la sesión guardada,
+      // simplemente se muestra el login para que el usuario reintente.
+    } finally {
+      if (mounted) {
+        setState(() => _checkingTvSession = false);
+      }
+    }
   }
 
   Future<void> _loadRememberedUser() async {
@@ -768,8 +904,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _usernameFocusNode.removeListener(_usernameKeyboardListener);
-    _passwordFocusNode.removeListener(_passwordKeyboardListener);
     _usernameController.dispose();
     _passwordController.dispose();
     _usernameFocusNode.dispose();
@@ -855,8 +989,6 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (success) {
-        await _saveRememberedUser(username);
-
         final deviceProfile =
             await DeviceProfileService.getSavedProfile();
 
@@ -865,17 +997,33 @@ class _LoginScreenState extends State<LoginScreen> {
         final Widget destination;
 
         if (deviceProfile == DeviceProfile.tv) {
+          // En TV, "Mantener sesión iniciada" guarda usuario y
+          // contraseña en almacenamiento seguro (Keystore) para
+          // revalidarlos automáticamente la próxima vez que se abra
+          // la app; nunca en SharedPreferences ni en texto plano.
+          if (_rememberMe) {
+            await TvSessionService.saveSession(
+              username: username,
+              password: password,
+            );
+          } else {
+            await TvSessionService.clearSession();
+          }
+
           destination = TvHomeScreen(
             username: username,
             password: password,
           );
         } else {
+          await _saveRememberedUser(username);
           destination = HomeScreen(
             username: username,
             password: password,
             showWelcomeMessage: true,
           );
         }
+
+        if (!mounted) return;
 
         Navigator.pushReplacement(
           context,
@@ -1229,7 +1377,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       onChanged: (value) async {
                         final newValue = value ?? false;
                         setState(() => _rememberMe = newValue);
-                        if (!newValue) await _clearRememberedUser();
+                        if (!newValue) {
+                          if (isTv) {
+                            await TvSessionService.clearSession();
+                          } else {
+                            await _clearRememberedUser();
+                          }
+                        }
                       },
                       activeColor: AppColors.accent,
                       checkColor: AppColors.textPrimary,
@@ -1243,7 +1397,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Recordarme',
+                    'Mantener sesión iniciada',
                     style: GoogleFonts.manrope(
                       color: AppColors.textSecondary,
                       fontSize: isTv ? 15 : 13,
@@ -1275,15 +1429,6 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Por tu seguridad, solo guardamos tu usuario. La contraseña nunca se almacena en este dispositivo.',
-            style: GoogleFonts.manrope(
-              color: AppColors.textSecondary.withValues(alpha: .7),
-              fontSize: 11.5,
-              height: 1.4,
-            ),
-          ),
           const SizedBox(height: 20),
           PrimaryButton(
             text: 'Iniciar sesión',
@@ -1309,8 +1454,49 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Widget _buildTvSessionCheckScreen() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/login_background.png',
+            fit: BoxFit.cover,
+          ),
+          IgnorePointer(
+            child: Container(
+              color: AppColors.background.withValues(alpha: .78),
+            ),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: AppColors.accent),
+                const SizedBox(height: 20),
+                Text(
+                  'Verificando tu sesión...',
+                  style: GoogleFonts.manrope(
+                    color: AppColors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_checkingTvSession) {
+      return _buildTvSessionCheckScreen();
+    }
+
     final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
