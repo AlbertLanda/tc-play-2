@@ -1462,8 +1462,13 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   // DIÁLOGO DE CUENTA
   // ============================================================
 
-  void _showAccountDialog() {
-    showDialog<void>(
+  Future<void> _showAccountDialog() async {
+    // El SurfaceView del video queda por encima de cualquier widget
+    // de Flutter en su misma zona (ver setOverlayVisible): sin
+    // ocultarlo primero, el diálogo se ve tapado por el mini video.
+    await TvOverlayService.setOverlayVisible(false);
+
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
@@ -1536,6 +1541,13 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         );
       },
     );
+
+    // Si el diálogo terminó en "Cerrar sesión", la pantalla entera
+    // está a punto de reemplazarse por LoginScreen: no hace falta
+    // (ni conviene) volver a mostrar el video en ese caso.
+    if (mounted && _selectedChannel != null) {
+      await TvOverlayService.setOverlayVisible(true);
+    }
   }
 
   Future<void> _logout() async {
@@ -1555,8 +1567,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   // DIÁLOGO DE CONFIGURACIÓN (cambiar tipo de dispositivo)
   // ============================================================
 
-  void _showDeviceSettingsDialog() {
-    showDialog<void>(
+  Future<void> _showDeviceSettingsDialog() async {
+    // Igual que en el diálogo de cuenta: el video queda por encima
+    // de cualquier widget de Flutter en su misma zona.
+    await TvOverlayService.setOverlayVisible(false);
+
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
@@ -1599,6 +1615,13 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         );
       },
     );
+
+    // Si se eligió "Cambiar dispositivo", la pantalla ya está siendo
+    // reemplazada por DeviceSetupScreen: no hace falta re-mostrar el
+    // video en ese caso.
+    if (mounted && _selectedChannel != null) {
+      await TvOverlayService.setOverlayVisible(true);
+    }
   }
 
   void _changeDeviceProfile() {

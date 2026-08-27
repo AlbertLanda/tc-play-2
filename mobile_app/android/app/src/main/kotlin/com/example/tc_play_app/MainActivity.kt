@@ -106,6 +106,14 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "setOverlayVisible" -> {
+                    val visible =
+                        call.argument<Boolean>("visible") ?: true
+
+                    tvOverlayController?.setOverlayVisible(visible)
+                    result.success(null)
+                }
+
                 "showChannelBanner" -> {
                     val title =
                         call.argument<String>("title") ?: ""

@@ -29,6 +29,18 @@ class TvOverlayService {
     await _channel.invokeMethod('hide');
   }
 
+  // Oculta o vuelve a mostrar el overlay SIN liberar el ExoPlayer
+  // (a diferencia de hide()). Se usa antes de abrir un diálogo de
+  // Flutter (cuenta, configuración): el SurfaceView del video queda
+  // por encima de cualquier widget de Flutter en esa misma zona, así
+  // que sin esto el diálogo se vería tapado por el video.
+  static Future<void> setOverlayVisible(bool visible) async {
+    await _channel.invokeMethod(
+      'setOverlayVisible',
+      {'visible': visible},
+    );
+  }
+
   // Banner nativo de zapping (indicador de canal).
   //
   // Se implementa como una vista Android normal, independiente del

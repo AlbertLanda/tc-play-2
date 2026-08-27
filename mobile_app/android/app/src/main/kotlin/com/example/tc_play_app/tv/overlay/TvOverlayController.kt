@@ -113,6 +113,27 @@ class TvOverlayController(
     }
 
     // ============================================================
+    // VISIBILIDAD TEMPORAL (sin liberar el player)
+    //
+    // El SurfaceView usa setZOrderMediaOverlay(true) para verse por
+    // encima de FlutterView, así que también queda por encima de
+    // cualquier diálogo de Flutter (AlertDialog, etc.) dibujado en
+    // esa misma zona. Antes de abrir uno, la app oculta el overlay
+    // con esto; a diferencia de hide(), NO libera el ExoPlayer, así
+    // que al reaparecer no hay recarga ni parpadeo del canal.
+    // ============================================================
+
+    fun setOverlayVisible(visible: Boolean) {
+        activity.runOnUiThread {
+            container?.visibility = if (visible) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+        }
+    }
+
+    // ============================================================
     // CREACIÓN DEL OVERLAY VISUAL
     // ============================================================
 
