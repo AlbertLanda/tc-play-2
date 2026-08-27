@@ -39,6 +39,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   String? _focusedCategoryId;
   int? _focusedChannelId;
+  bool _previewFocused = false;
 
   bool _loadingCategories = true;
   bool _loadingChannels = false;
@@ -195,12 +196,51 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   }
 
   // ============================================================
+  // SELECCIÓN MANUAL DE CANAL (mini panel "EN VIVO")
+  // ============================================================
+
+  void _selectChannel(
+    LiveChannel channel,
+  ) {
+    if (_selectedChannel?.id == channel.id) {
+      return;
+    }
+
+    setState(() {
+      _selectedChannel = channel;
+    });
+
+    // Si todavía estaba esperando otro canal, lo cancelamos.
+    _channelDebounce?.cancel();
+
+    // Esperamos 500 ms.
+    //
+    // Si el usuario sigue navegando por la lista, este Timer
+    // será reemplazado y solamente se reproducirá finalmente
+    // el último canal seleccionado.
+    _channelDebounce = Timer(
+      const Duration(milliseconds: 500),
+      () {
+        if (!mounted) return;
+
+        // Segunda protección:
+        // verificamos que el canal siga siendo el seleccionado.
+        if (_selectedChannel?.id != channel.id) {
+          return;
+        }
+
+        _showNativeOverlay(channel);
+      },
+    );
+  }
+
+  // ============================================================
   // PANTALLA COMPLETA
   // ============================================================
 
-  // El usuario elige un canal desde la lista: lo reproducimos
-  // inmediatamente en pantalla completa (comportamiento estándar
-  // de un decodificador de TV al presionar OK sobre un canal).
+  // El usuario navega hasta el mini reproductor "EN VIVO" y
+  // presiona OK: ese es el gesto que expande el canal que ya se
+  // está previsualizando a pantalla completa.
   void _openFullscreen(
     LiveChannel channel,
   ) {
@@ -760,7 +800,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               },
 
               onTap: () {
-                _openFullscreen(channel);
+                _selectChannel(channel);
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 140),
@@ -941,9 +981,47 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           // Su posición real se mide con _videoSlotKey y se envía
           // al overlay nativo, así nunca se monta encima del banner
           // de publicidad de más abajo.
+          //
+          // Es enfocable: el usuario navega hasta aquí con el
+          // control y presiona OK para expandir el canal que se
+          // está previsualizando a pantalla completa. El borde de
+          // foco se dibuja en el padding EXTERNO a _videoSlotKey a
+          // propósito: cualquier cosa que Flutter dibuje encima del
+          // rectángulo exacto del video queda oculta debajo del
+          // SurfaceView nativo.
           Expanded(
             flex: 7,
-            child: SizedBox.expand(key: _videoSlotKey),
+            child: Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                focusColor: AppColors.primary.withValues(alpha: .30),
+                onFocusChange: (hasFocus) {
+                  setState(() {
+                    _previewFocused = hasFocus;
+                  });
+                },
+                onTap: _selectedChannel == null
+                    ? null
+                    : () => _openFullscreen(_selectedChannel!),
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _previewFocused
+                          ? AppColors.accent
+                          : Colors.transparent,
+                      width: 3,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(3),
+                    child: SizedBox.expand(key: _videoSlotKey),
+                  ),
+                ),
+              ),
+            ),
           ),
 
           const SizedBox(height: 12),
