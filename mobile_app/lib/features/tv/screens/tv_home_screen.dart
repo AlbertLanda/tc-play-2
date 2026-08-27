@@ -60,6 +60,11 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   bool _isFullscreen = false;
   final FocusNode _fullscreenFocusNode = FocusNode();
 
+  // Evita lanzar varias búsquedas de "categoría siguiente" a la vez
+  // si el usuario mantiene presionada la flecha justo al llegar al
+  // final de la lista de canales.
+  bool _categoryZapInFlight = false;
+
   @override
   void initState() {
     super.initState();
@@ -277,16 +282,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   // ZAPPING (avanzar/retroceder canal en pantalla completa)
   // ============================================================
 
-  LiveChannel? _channelAt(int index) {
-    if (_channels.isEmpty) return null;
-
-    final normalized = index % _channels.length;
-
-    return _channels[
-        normalized < 0 ? normalized + _channels.length : normalized];
-  }
-
-  void _advanceChannel(int delta) {
+  Future<void> _advanceChannel(int delta) async {
     if (_channels.isEmpty || _selectedChannel == null) return;
 
     final currentIndex = _channels.indexWhere(
@@ -294,12 +290,101 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
 
     final baseIndex = currentIndex == -1 ? 0 : currentIndex;
+    final nextIndex = baseIndex + delta;
 
-    final next = _channelAt(baseIndex + delta);
+    // Todavía hay canales dentro de la categoría actual: caso normal.
+    if (nextIndex >= 0 && nextIndex < _channels.length) {
+      _zapToChannel(_channels[nextIndex]);
+      return;
+    }
 
-    if (next == null) return;
+    // Se acabaron los canales de esta categoría: seguimos el
+    // zapping en la categoría siguiente/anterior, para que el
+    // usuario pueda recorrer TODOS los canales sin interrupciones,
+    // como en un decodificador real.
+    await _zapToAdjacentCategory(delta);
+  }
 
-    _zapToChannel(next);
+  // Busca, en la dirección del zapping, la próxima categoría que
+  // tenga canales, y continúa ahí (primer canal si se avanza,
+  // último canal si se retrocede). Salta categorías vacías y da la
+  // vuelta completa a la lista si es necesario.
+  Future<void> _zapToAdjacentCategory(int delta) async {
+    if (_categoryZapInFlight) return;
+    if (_categories.isEmpty || _selectedCategory == null) return;
+
+    final categoryIndex = _categories.indexWhere(
+      (c) => c.id == _selectedCategory!.id,
+    );
+    if (categoryIndex == -1) return;
+
+    _categoryZapInFlight = true;
+
+    final categoryCount = _categories.length;
+    final step = delta > 0 ? 1 : -1;
+
+    try {
+      for (var offset = 1; offset <= categoryCount; offset++) {
+        final rawIndex = categoryIndex + (step * offset);
+        final normalizedIndex =
+            ((rawIndex % categoryCount) + categoryCount) % categoryCount;
+
+        final candidateCategory = _categories[normalizedIndex];
+
+        _showCategoryZapBanner(candidateCategory);
+
+        List<LiveChannel> candidateChannels;
+        try {
+          candidateChannels = await _service.getChannels(
+            username: widget.username,
+            password: widget.password,
+            categoryId: candidateCategory.id,
+          );
+        } catch (e) {
+          debugPrint('TV ZAP: error cargando ${candidateCategory.name}: $e');
+          continue;
+        }
+
+        if (!mounted) return;
+        if (candidateChannels.isEmpty) continue;
+
+        // El usuario pudo haber salido de pantalla completa (o
+        // vuelto a machucar la flecha) mientras esperábamos la red.
+        if (!_isFullscreen) return;
+
+        setState(() {
+          _selectedCategory = candidateCategory;
+          _channels = candidateChannels;
+        });
+
+        final target =
+            delta > 0 ? candidateChannels.first : candidateChannels.last;
+
+        _zapToChannel(target);
+        return;
+      }
+    } finally {
+      _categoryZapInFlight = false;
+    }
+  }
+
+  void _showCategoryZapBanner(LiveCategory category) {
+    final size = MediaQuery.of(context).size;
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+
+    const bannerWidthDp = 380.0;
+    const bannerHeightDp = 80.0;
+    const marginDp = 32.0;
+
+    TvOverlayService.showChannelBanner(
+      title: category.name.toUpperCase(),
+      subtitle: 'Cargando canales...',
+      x: (marginDp * dpr).round(),
+      y: ((size.height - bannerHeightDp - marginDp) * dpr).round(),
+      width: (bannerWidthDp * dpr).round(),
+      height: (bannerHeightDp * dpr).round(),
+      autoHideMs: 0,
+    );
   }
 
   void _zapToChannel(LiveChannel channel) {
@@ -404,7 +489,15 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
-  void _pushOverlayGeometry() {
+  // En arranque en frío (justo al abrir la app) el primer frame
+  // todavía puede no tener medidas listas para _videoSlotKey
+  // (assets, fuentes, animaciones de entrada). Si eso pasa,
+  // reintentamos en los siguientes frames en vez de rendirnos: sin
+  // este reintento, el video quedaba invisible hasta que el usuario
+  // tocaba manualmente un canal.
+  static const int _maxGeometryRetries = 10;
+
+  void _pushOverlayGeometry({int attempt = 0}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
@@ -412,7 +505,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       if (url == null) return;
 
       final rect = _measureVideoSlotRect();
-      if (rect == null) return;
+      if (rect == null) {
+        if (attempt < _maxGeometryRetries) {
+          _pushOverlayGeometry(attempt: attempt + 1);
+        }
+        return;
+      }
 
       TvOverlayService.showPlayer(
         url: url,
@@ -511,8 +609,30 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return PopScope(
+      // El botón/gesto "Atrás" del control de TV no llega a Flutter
+      // como una tecla normal: Android lo despacha directo como una
+      // navegación de sistema. Sin este PopScope, presionarlo en
+      // pantalla completa hacía pop de la única ruta de la app y la
+      // cerraba. Aquí lo interceptamos para regresar al mini panel
+      // en vez de salir.
+      canPop: !_isFullscreen,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _closeFullscreen();
+        }
+      },
+      child: _buildContent(),
+    );
+  }
+
+  Widget _buildContent() {
     if (_isFullscreen) {
       return _buildFullscreen();
+    }
+
+    if (_loadingCategories && _categories.isEmpty && _error == null) {
+      return _buildInitialLoading();
     }
 
     return Scaffold(
@@ -551,6 +671,41 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                     ),
                   ],
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // CARGA INICIAL (splash con logo)
+  // ============================================================
+
+  Widget _buildInitialLoading() {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset(
+              'assets/images/tc_play_logo.png',
+              height: 96,
+            ),
+            const SizedBox(height: 32),
+            const CircularProgressIndicator(
+              color: AppColors.primary,
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Cargando canales...',
+              style: TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                letterSpacing: .4,
               ),
             ),
           ],
