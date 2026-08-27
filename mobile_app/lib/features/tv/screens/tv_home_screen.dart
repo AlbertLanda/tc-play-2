@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/constants/app_colors.dart';
+import '../../auth/screens/login_screen.dart';
+import '../../auth/services/tv_session_service.dart';
+import '../../device/screens/device_setup_screen.dart';
 import '../../live_tv/models/live_category.dart';
 import '../../live_tv/models/live_channel.dart';
 import '../../live_tv/services/live_tv_service.dart';
@@ -730,11 +733,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   Widget _buildInitialLoading() {
     // Igual que el splash del lado móvil: el logo solo, grande,
-    // sin caja ni texto de estado. La imagen ya trae su propio
-    // fondo negro, así que mostrarla chica se veía como una
-    // "cajita" en vez de un logo limpio de pantalla completa.
+    // sin caja ni texto de estado. La imagen trae su propio fondo
+    // negro puro, así que el Scaffold usa ESE MISMO negro (no el
+    // azul marino de AppColors.background) para que no se note el
+    // borde de la imagen como una calcomanía pegada.
     return const Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Colors.black,
       body: Center(
         child: Image(
           image: AssetImage('assets/images/tc_play_logo.png'),
@@ -1414,25 +1418,189 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             ),
           ),
           const Spacer(),
-          const Icon(
-            Icons.search_rounded,
-            color: AppColors.textSecondary,
-            size: 28,
+          _buildTopBarButton(
+            icon: Icons.person_outline_rounded,
+            onTap: _showAccountDialog,
           ),
-          const SizedBox(width: 28),
-          const Icon(
-            Icons.person_outline_rounded,
-            color: AppColors.textSecondary,
-            size: 28,
-          ),
-          const SizedBox(width: 28),
-          const Icon(
-            Icons.settings_outlined,
-            color: AppColors.textSecondary,
-            size: 28,
+          const SizedBox(width: 20),
+          _buildTopBarButton(
+            icon: Icons.settings_outlined,
+            onTap: _showDeviceSettingsDialog,
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTopBarButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        focusColor: AppColors.primary.withValues(alpha: .35),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(
+            icon,
+            color: AppColors.textSecondary,
+            size: 28,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // DIÁLOGO DE CUENTA
+  // ============================================================
+
+  void _showAccountDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              const CircleAvatar(
+                backgroundColor: AppColors.primary,
+                child: Icon(
+                  Icons.person_rounded,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.username,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    const Text(
+                      'Cuenta activa',
+                      style: TextStyle(
+                        color: Color(0xFF22C55E),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              autofocus: true,
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text(
+                'CERRAR',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _logout();
+              },
+              child: const Text(
+                'CERRAR SESIÓN',
+                style: TextStyle(
+                  color: AppColors.error,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _logout() async {
+    await TvSessionService.clearSession();
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => const LoginScreen(),
+      ),
+      (route) => false,
+    );
+  }
+
+  // ============================================================
+  // DIÁLOGO DE CONFIGURACIÓN (cambiar tipo de dispositivo)
+  // ============================================================
+
+  void _showDeviceSettingsDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'Configuración',
+            style: TextStyle(color: AppColors.textPrimary),
+          ),
+          content: const Text(
+            '¿Este dispositivo se configuró como el equivocado? '
+            'Puedes cambiarlo entre celular/tablet o televisor.',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              autofocus: true,
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text(
+                'CANCELAR',
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _changeDeviceProfile();
+              },
+              child: const Text(
+                'CAMBIAR DISPOSITIVO',
+                style: TextStyle(
+                  color: AppColors.accent,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _changeDeviceProfile() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => const DeviceSetupScreen(),
+      ),
+      (route) => false,
     );
   }
 
