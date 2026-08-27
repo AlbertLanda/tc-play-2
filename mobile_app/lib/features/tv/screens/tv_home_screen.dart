@@ -78,6 +78,14 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   // final de la lista de canales.
   bool _categoryZapInFlight = false;
 
+  // Se marca en cuanto el usuario elige "Cerrar sesión" o "Cambiar
+  // dispositivo", ANTES de que Navigator reemplace la pantalla.
+  // Evita que el "restaurar visibilidad" de los diálogos (que se
+  // ejecuta después, cuando la pantalla puede seguir mounted=true
+  // durante la animación de transición) vuelva a mostrar el video
+  // justo cuando ya estamos saliendo de TvHomeScreen.
+  bool _leavingTvHome = false;
+
   @override
   void initState() {
     super.initState();
@@ -1542,15 +1550,26 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       },
     );
 
-    // Si el diálogo terminó en "Cerrar sesión", la pantalla entera
-    // está a punto de reemplazarse por LoginScreen: no hace falta
-    // (ni conviene) volver a mostrar el video en ese caso.
-    if (mounted && _selectedChannel != null) {
+    // Si el diálogo terminó en "Cerrar sesión", _leavingTvHome ya
+    // está en true (se marca ANTES de este punto, ver _logout) y no
+    // volvemos a mostrar el video: la pantalla está siendo
+    // reemplazada por LoginScreen.
+    if (mounted && !_leavingTvHome && _selectedChannel != null) {
       await TvOverlayService.setOverlayVisible(true);
     }
   }
 
   Future<void> _logout() async {
+    // Se marca de inmediato, ANTES de cualquier await: el botón
+    // "Cerrar sesión" del diálogo llama a este método de forma
+    // síncrona, así que para cuando el showDialog() que lo abrió
+    // termine de resolverse, _leavingTvHome ya está en true.
+    _leavingTvHome = true;
+
+    // Apagamos el video por completo (no solo ocultarlo): estamos
+    // saliendo de la pantalla de TV para siempre en esta sesión.
+    await TvOverlayService.hide();
+
     await TvSessionService.clearSession();
 
     if (!mounted) return;
@@ -1616,15 +1635,24 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       },
     );
 
-    // Si se eligió "Cambiar dispositivo", la pantalla ya está siendo
-    // reemplazada por DeviceSetupScreen: no hace falta re-mostrar el
-    // video en ese caso.
-    if (mounted && _selectedChannel != null) {
+    // Si se eligió "Cambiar dispositivo", _leavingTvHome ya está en
+    // true (ver _changeDeviceProfile) y no volvemos a mostrar el
+    // video: la pantalla está siendo reemplazada por
+    // DeviceSetupScreen.
+    if (mounted && !_leavingTvHome && _selectedChannel != null) {
       await TvOverlayService.setOverlayVisible(true);
     }
   }
 
   void _changeDeviceProfile() {
+    // Se marca de inmediato, antes del await de hide(), por la misma
+    // razón que en _logout(): este método corre de forma síncrona
+    // dentro del onPressed del diálogo, antes de que su showDialog()
+    // termine de resolverse.
+    _leavingTvHome = true;
+
+    TvOverlayService.hide();
+
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => const DeviceSetupScreen(),
