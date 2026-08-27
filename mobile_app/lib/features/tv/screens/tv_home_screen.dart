@@ -483,11 +483,16 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       return KeyEventResult.handled;
     }
 
-    if (key == LogicalKeyboardKey.goBack ||
-        key == LogicalKeyboardKey.escape) {
-      _closeFullscreen();
-      return KeyEventResult.handled;
-    }
+    // El botón "Atrás" NO se maneja aquí a propósito.
+    //
+    // Antes lo interceptábamos también como tecla normal, además del
+    // PopScope de más abajo. El control de la TV puede entregar una
+    // sola pulsación por los dos canales casi al mismo tiempo: si
+    // este handler la procesaba primero y cambiaba _isFullscreen a
+    // false, el PopScope evaluaba la MISMA pulsación con canPop ya
+    // en true y dejaba pasar el pop de la única ruta de la app,
+    // cerrándola por completo segundos después de "volver bien".
+    // PopScope es el mecanismo correcto y único para esto.
 
     return KeyEventResult.ignored;
   }
@@ -753,19 +758,17 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         // El banner de canal y el video se dibujan de forma nativa
         // (ver TvOverlayService.showChannelBanner) porque el
         // SurfaceView del reproductor queda por encima de cualquier
-        // widget de Flutter dibujado en esta misma zona. Por eso el
-        // logo de "cargando" de aquí abajo solo es seguro mostrarlo
-        // MIENTRAS el overlay nativo todavía no está visible
-        // (_currentStreamUrl == null): en ese momento no hay nada
-        // nativo tapándolo.
+        // widget de Flutter dibujado en esta misma zona. El logo de
+        // marca se reserva para el arranque de la app (splash
+        // inicial): repetirlo cada vez que se carga un canal se
+        // siente repetitivo, así que aquí solo un spinner simple.
         child: Stack(
           children: [
             SizedBox.expand(key: _videoSlotKey),
             if (_currentStreamUrl == null)
               const Center(
-                child: Image(
-                  image: AssetImage('assets/images/tc_play_logo.png'),
-                  height: 140,
+                child: CircularProgressIndicator(
+                  color: AppColors.accent,
                 ),
               ),
           ],
@@ -1212,21 +1215,16 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(3),
-                    // El logo solo es seguro mostrarlo mientras el
-                    // overlay nativo todavía no está visible
-                    // (_currentStreamUrl == null); una vez que hay
-                    // video, cualquier widget de Flutter en esta
-                    // zona queda oculto debajo de él.
+                    // Solo un spinner simple mientras carga: el logo
+                    // de marca se reserva para el splash inicial de
+                    // la app, no para cada cambio de canal.
                     child: Stack(
                       children: [
                         SizedBox.expand(key: _videoSlotKey),
                         if (_currentStreamUrl == null)
                           const Center(
-                            child: Image(
-                              image: AssetImage(
-                                'assets/images/tc_play_logo.png',
-                              ),
-                              height: 72,
+                            child: CircularProgressIndicator(
+                              color: AppColors.accent,
                             ),
                           ),
                       ],
