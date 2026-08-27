@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../live_tv/models/live_category.dart';
@@ -35,6 +36,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   LiveCategory? _selectedCategory;
   LiveChannel? _selectedChannel;
 
+  String? _focusedCategoryId;
+  int? _focusedChannelId;
+
   bool _loadingCategories = true;
   bool _loadingChannels = false;
 
@@ -43,6 +47,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   @override
   void initState() {
     super.initState();
+
+    WakelockPlus.enable();
 
     _loadCategories();
   }
@@ -277,13 +283,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   @override
   void dispose() {
-    // Evita que un Timer intente abrir un canal después
-    // de haber abandonado TvHomeScreen.
     _channelDebounce?.cancel();
     _channelDebounce = null;
 
-    // No usamos await dentro de dispose().
     TvOverlayService.hide();
+
+    WakelockPlus.disable();
 
     super.dispose();
   }
@@ -386,6 +391,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         final selected =
             _selectedCategory?.id == category.id;
 
+        final focused =
+            _focusedCategoryId == category.id;
+
         return Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: 10,
@@ -397,36 +405,53 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 BorderRadius.circular(10),
             child: InkWell(
               autofocus: index == 0,
-              borderRadius:
-                  BorderRadius.circular(10),
-              focusColor:
-                  AppColors.primary.withValues(
+              borderRadius: BorderRadius.circular(10),
+
+              focusColor: AppColors.primary.withValues(
                 alpha: .30,
               ),
+
+              onFocusChange: (hasFocus) {
+                setState(() {
+                  _focusedCategoryId =
+                      hasFocus ? category.id : null;
+                });
+              },
+
               onTap: () {
                 _selectCategory(category);
               },
+
               child: AnimatedContainer(
-                duration:
-                    const Duration(milliseconds: 150),
-                padding:
-                    const EdgeInsets.symmetric(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 14,
                 ),
                 decoration: BoxDecoration(
-                  color: selected
-                      ? AppColors.primary
-                          .withValues(alpha: .22)
-                      : Colors.transparent,
-                  borderRadius:
-                      BorderRadius.circular(10),
+                  color: focused
+                      ? AppColors.accent.withValues(alpha: .22)
+                      : selected
+                          ? AppColors.primary.withValues(alpha: .28)
+                          : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: selected
-                        ? AppColors.primary
-                        : Colors.transparent,
-                    width: 2,
+                    color: focused
+                        ? AppColors.accent
+                        : selected
+                            ? AppColors.primary
+                            : Colors.transparent,
+                    width: focused ? 3 : 2,
                   ),
+                  boxShadow: focused
+                      ? [
+                          BoxShadow(
+                            color: AppColors.accent.withValues(alpha: .45),
+                            blurRadius: 16,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : const [],
                 ),
                 child: Row(
                   children: [
@@ -434,24 +459,24 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                       selected
                           ? Icons.play_arrow_rounded
                           : Icons.folder_outlined,
-                      color: selected
-                          ? AppColors.primary
-                          : AppColors.textSecondary,
+                      color: focused
+                          ? AppColors.textPrimary
+                          : selected
+                              ? AppColors.accent
+                              : AppColors.textSecondary,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         category.name,
                         maxLines: 1,
-                        overflow:
-                            TextOverflow.ellipsis,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: selected
+                          color: focused || selected
                               ? AppColors.textPrimary
-                              : AppColors
-                                  .textSecondary,
+                              : AppColors.textSecondary,
                           fontSize: 15,
-                          fontWeight: selected
+                          fontWeight: focused || selected
                               ? FontWeight.w700
                               : FontWeight.w500,
                         ),
@@ -511,6 +536,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         final selected =
             _selectedChannel?.id == channel.id;
 
+        final focused =
+            _focusedChannelId == channel.id;
+
         return Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: 10,
@@ -527,22 +555,51 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                   AppColors.primary.withValues(
                 alpha: .30,
               ),
+
+              onFocusChange: (hasFocus) {
+                setState(() {
+                  _focusedChannelId =
+                      hasFocus ? channel.id : null;
+                });
+              },
+
               onTap: () {
                 _selectChannel(channel);
               },
-              child: Container(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 140),
                 padding:
                     const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color: selected
-                      ? Colors.white
-                          .withValues(alpha: .08)
-                      : Colors.transparent,
-                  borderRadius:
-                      BorderRadius.circular(10),
+                  color: focused
+                      ? AppColors.accent.withValues(alpha: .22)
+                      : selected
+                          ? AppColors.primary.withValues(alpha: .28)
+                          : Colors.transparent,
+
+                  borderRadius: BorderRadius.circular(10),
+
+                  border: Border.all(
+                    color: focused
+                        ? AppColors.accent
+                        : selected
+                            ? AppColors.primary
+                            : Colors.transparent,
+                    width: focused ? 3 : 2,
+                  ),
+
+                  boxShadow: focused
+                      ? [
+                          BoxShadow(
+                            color: AppColors.accent.withValues(alpha: .45),
+                            blurRadius: 16,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : const [],
                 ),
                 child: Row(
                   children: [
@@ -559,11 +616,11 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                             overflow:
                                 TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: selected
-                                  ? AppColors
-                                      .textPrimary
-                                  : AppColors
-                                      .textSecondary,
+                              color: focused
+                                  ? AppColors.textPrimary
+                                  : selected
+                                      ? AppColors.accent
+                                      : AppColors.textSecondary,
                               fontSize: 15,
                               fontWeight: selected
                                   ? FontWeight.w700
@@ -647,6 +704,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   Widget _buildPreview() {
     final channel = _selectedChannel;
+    final category = _selectedCategory;
 
     if (channel == null) {
       return const Center(
@@ -672,22 +730,174 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       );
     }
 
-    // El área queda vacía deliberadamente.
-    //
-    // Flutter dibuja el panel, pero el video real está siendo
-    // colocado encima por Android mediante:
-    //
-    // TvOverlayController
-    //      ↓
-    // TextureView
-    //      ↓
-    // ExoPlayer
-    //
-    // Así evitamos el problema de PlatformView/SurfaceProducer
-    // que causaba audio sin imagen en estas TVs.
-    return const Padding(
-      padding: EdgeInsets.all(18),
-      child: SizedBox.expand(),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        18,
+        8,
+        18,
+        16,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Espacio reservado para el SurfaceView nativo.
+          //
+          // Por ahora mantenemos la geometría de laboratorio
+          // sin modificar el reproductor estable.
+          const Expanded(
+            flex: 7,
+            child: SizedBox.expand(),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Información del canal actual.
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: .22),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: .10),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 9,
+                  height: 9,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF22C55E),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        channel.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (category != null) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          category.name.toUpperCase(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: .8,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const Text(
+                  'EN VIVO',
+                  style: TextStyle(
+                    color: Color(0xFF22C55E),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          _buildPromoBanner(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPromoBanner() {
+    return Container(
+      height: 74,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 18,
+        vertical: 12,
+      ),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.primary.withValues(alpha: .90),
+            AppColors.accent.withValues(alpha: .55),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.accent.withValues(alpha: .45),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.campaign_rounded,
+              color: AppColors.textPrimary,
+              size: 25,
+            ),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Nuevos planes disponibles',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Conoce las promociones que tenemos para ti.',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 12),
+          Icon(
+            Icons.arrow_forward_ios_rounded,
+            color: AppColors.textPrimary,
+            size: 15,
+          ),
+        ],
+      ),
     );
   }
 
