@@ -57,6 +57,16 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   String? _currentStreamUrl;
   int? _playingChannelId;
 
+  // Cada llamada a _showNativeOverlay saca un número. Si al terminar
+  // de esperar la red este número ya no es el más reciente, significa
+  // que el usuario pidió otro canal mientras tanto y esta respuesta
+  // llegó tarde: se descarta sin importar a qué canal pertenecía.
+  // (Comparar solo por channel.id no bastaba: si el usuario avanzaba
+  // dos canales seguidos, una respuesta vieja podía "ganarle" a la
+  // más nueva y quedar reproduciendo un canal distinto al que el
+  // banner ya mostraba.)
+  int _streamRequestSeq = 0;
+
   bool _isFullscreen = false;
   final FocusNode _fullscreenFocusNode = FocusNode();
 
@@ -79,8 +89,18 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   // ============================================================
 
   Future<void> _hideOverlay() async {
-    _currentStreamUrl = null;
-    _playingChannelId = null;
+    // Envuelto en setState para que el logo de "cargando" reaparezca
+    // en el hueco del video (mini panel o pantalla completa)
+    // apenas se oculta el canal anterior.
+    if (mounted) {
+      setState(() {
+        _currentStreamUrl = null;
+        _playingChannelId = null;
+      });
+    } else {
+      _currentStreamUrl = null;
+      _playingChannelId = null;
+    }
 
     await TvOverlayService.hide();
   }
@@ -392,7 +412,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       _selectedChannel = channel;
     });
 
-    _showZapBanner(channel);
+    // El banner se actualiza al instante, pero avisando que todavía
+    // no es lo que está en pantalla: el video real tarda el
+    // debounce + lo que demore la red, y antes se anunciaba un
+    // canal como si ya estuviera al aire cuando en realidad seguía
+    // mostrándose el anterior.
+    _showZapBanner(channel, tuning: true);
 
     // Igual que en la navegación por la lista: si el usuario sigue
     // machucando la flecha, solo pedimos el stream del último canal
@@ -410,7 +435,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     );
   }
 
-  void _showZapBanner(LiveChannel channel) {
+  void _showZapBanner(
+    LiveChannel channel, {
+    bool tuning = false,
+  }) {
     final index = _channels.indexWhere((c) => c.id == channel.id);
     final position = index == -1 ? '' : '${index + 1}/${_channels.length}  ';
     final category = _selectedCategory?.name.toUpperCase() ?? '';
@@ -424,12 +452,15 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
     TvOverlayService.showChannelBanner(
       title: '$position${channel.name}',
-      subtitle: category,
+      subtitle: tuning ? 'Sintonizando...' : category,
       x: (marginDp * dpr).round(),
       y: ((size.height - bannerHeightDp - marginDp) * dpr).round(),
       width: (bannerWidthDp * dpr).round(),
       height: (bannerHeightDp * dpr).round(),
-      autoHideMs: 4000,
+      // Mientras todavía no confirmamos que el video cambió, no lo
+      // ocultamos solo por tiempo: se queda hasta que
+      // _showNativeOverlay lo reemplace por la versión confirmada.
+      autoHideMs: tuning ? 0 : 4000,
     );
   }
 
@@ -529,6 +560,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   Future<void> _showNativeOverlay(
     LiveChannel channel,
   ) async {
+    final requestSeq = ++_streamRequestSeq;
+
     try {
       debugPrint(
         'TV OVERLAY: solicitando URL '
@@ -544,14 +577,14 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
       if (!mounted) return;
 
-      // Puede ocurrir que la URL tarde y el usuario ya haya
-      // seleccionado otro canal.
-      //
-      // En ese caso no enviamos esta URL antigua a ExoPlayer.
-      if (_selectedChannel?.id != channel.id) {
+      // Puede ocurrir que la URL tarde y el usuario ya haya pedido
+      // otro canal (o dos) mientras tanto. En ese caso esta
+      // respuesta quedó obsoleta y no debe pisar la más reciente.
+      if (requestSeq != _streamRequestSeq) {
         debugPrint(
           'TV OVERLAY: URL descartada '
-          'porque cambió el canal seleccionado.',
+          '(canal=${channel.name}) porque ya hay una petición más '
+          'reciente en curso.',
         );
 
         return;
@@ -562,23 +595,30 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         '${channel.name} (${channel.id})',
       );
 
-      _currentStreamUrl = url;
-      _playingChannelId = channel.id;
+      setState(() {
+        _currentStreamUrl = url;
+        _playingChannelId = channel.id;
+      });
 
       // La geometría real (mini panel "EN VIVO" o pantalla completa)
       // se mide y se envía en _pushOverlayGeometry().
       _pushOverlayGeometry();
+
+      // Recién ahora el canal mostrado en el banner de zapping
+      // coincide de verdad con lo que está en pantalla: quitamos el
+      // aviso de "Sintonizando..." y dejamos el banner normal.
+      if (_isFullscreen && _selectedChannel?.id == channel.id) {
+        _showZapBanner(channel, tuning: false);
+      }
     } catch (e) {
       debugPrint(
         'TV OVERLAY ERROR: $e',
       );
 
-      // Solo ocultamos si este sigue siendo el canal seleccionado.
-      //
-      // Así un error atrasado de un canal anterior no apaga
-      // accidentalmente el canal nuevo.
-      if (mounted &&
-          _selectedChannel?.id == channel.id) {
+      // Solo ocultamos si esta sigue siendo la petición más
+      // reciente. Así un error atrasado de un canal anterior no
+      // apaga accidentalmente el canal nuevo.
+      if (mounted && requestSeq == _streamRequestSeq) {
         await _hideOverlay();
       }
     }
@@ -684,31 +724,16 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   // ============================================================
 
   Widget _buildInitialLoading() {
-    return Scaffold(
+    // Igual que el splash del lado móvil: el logo solo, grande,
+    // sin caja ni texto de estado. La imagen ya trae su propio
+    // fondo negro, así que mostrarla chica se veía como una
+    // "cajita" en vez de un logo limpio de pantalla completa.
+    return const Scaffold(
       backgroundColor: AppColors.background,
       body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/images/tc_play_logo.png',
-              height: 96,
-            ),
-            const SizedBox(height: 32),
-            const CircularProgressIndicator(
-              color: AppColors.primary,
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Cargando canales...',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                letterSpacing: .4,
-              ),
-            ),
-          ],
+        child: Image(
+          image: AssetImage('assets/images/tc_play_logo.png'),
+          height: 260,
         ),
       ),
     );
@@ -728,8 +753,23 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         // El banner de canal y el video se dibujan de forma nativa
         // (ver TvOverlayService.showChannelBanner) porque el
         // SurfaceView del reproductor queda por encima de cualquier
-        // widget de Flutter dibujado en esta misma zona.
-        child: SizedBox.expand(key: _videoSlotKey),
+        // widget de Flutter dibujado en esta misma zona. Por eso el
+        // logo de "cargando" de aquí abajo solo es seguro mostrarlo
+        // MIENTRAS el overlay nativo todavía no está visible
+        // (_currentStreamUrl == null): en ese momento no hay nada
+        // nativo tapándolo.
+        child: Stack(
+          children: [
+            SizedBox.expand(key: _videoSlotKey),
+            if (_currentStreamUrl == null)
+              const Center(
+                child: Image(
+                  image: AssetImage('assets/images/tc_play_logo.png'),
+                  height: 140,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1172,7 +1212,25 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(3),
-                    child: SizedBox.expand(key: _videoSlotKey),
+                    // El logo solo es seguro mostrarlo mientras el
+                    // overlay nativo todavía no está visible
+                    // (_currentStreamUrl == null); una vez que hay
+                    // video, cualquier widget de Flutter en esta
+                    // zona queda oculto debajo de él.
+                    child: Stack(
+                      children: [
+                        SizedBox.expand(key: _videoSlotKey),
+                        if (_currentStreamUrl == null)
+                          const Center(
+                            child: Image(
+                              image: AssetImage(
+                                'assets/images/tc_play_logo.png',
+                              ),
+                              height: 72,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
