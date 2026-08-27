@@ -2,11 +2,15 @@ package com.example.tc_play_app.tv.overlay
 
 import android.app.Activity
 import android.graphics.Color
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.SurfaceView
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -36,6 +40,25 @@ class TvOverlayController(
 
     // Solo para poder identificar en consola cada sesión.
     private var playerGeneration: Int = 0
+
+    // ============================================================
+    // BANNER DE ZAPPING (indicador de canal)
+    //
+    // Es una vista Android normal, NO un SurfaceView, agregada como
+    // hermana del contenedor del video. Es indispensable que sea así:
+    // el SurfaceView del video usa setZOrderMediaOverlay(true) para
+    // poder verse por encima de la superficie de FlutterView, y eso
+    // deja cualquier widget dibujado por Flutter en esa misma zona
+    // oculto DEBAJO del video. Una vista nativa añadida directamente
+    // al decorView sí queda por encima.
+    // ============================================================
+
+    private var bannerContainer: LinearLayout? = null
+    private var bannerTitle: TextView? = null
+    private var bannerSubtitle: TextView? = null
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var bannerHideRunnable: Runnable? = null
 
     fun showPlayer(
         url: String,
@@ -145,6 +168,126 @@ class TvOverlayController(
             TAG,
             "Overlay SurfaceView creado"
         )
+    }
+
+    // ============================================================
+    // BANNER DE ZAPPING
+    // ============================================================
+
+    fun showChannelBanner(
+        title: String,
+        subtitle: String,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        autoHideMs: Long
+    ) {
+        activity.runOnUiThread {
+
+            val decorView =
+                activity.window.decorView as? FrameLayout
+
+            if (decorView == null) {
+                Log.e(
+                    TAG,
+                    "No se pudo obtener decorView para el banner"
+                )
+                return@runOnUiThread
+            }
+
+            ensureBannerCreated(decorView)
+
+            val params = FrameLayout.LayoutParams(
+                width,
+                height
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                leftMargin = x
+                topMargin = y
+            }
+
+            bannerContainer?.layoutParams = params
+            bannerTitle?.text = title
+            bannerSubtitle?.text = subtitle
+            bannerContainer?.visibility = View.VISIBLE
+            bannerContainer?.alpha = 1f
+
+            bannerHideRunnable?.let {
+                mainHandler.removeCallbacks(it)
+            }
+
+            if (autoHideMs > 0) {
+                val runnable = Runnable {
+                    bannerContainer?.visibility = View.GONE
+                }
+
+                bannerHideRunnable = runnable
+
+                mainHandler.postDelayed(
+                    runnable,
+                    autoHideMs
+                )
+            }
+        }
+    }
+
+    fun hideChannelBanner() {
+        activity.runOnUiThread {
+            bannerHideRunnable?.let {
+                mainHandler.removeCallbacks(it)
+            }
+
+            bannerHideRunnable = null
+            bannerContainer?.visibility = View.GONE
+        }
+    }
+
+    private fun ensureBannerCreated(
+        decorView: FrameLayout
+    ) {
+        if (bannerContainer != null) {
+            return
+        }
+
+        Log.i(
+            TAG,
+            "Creando banner nativo de zapping"
+        )
+
+        val title = TextView(activity).apply {
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            maxLines = 1
+        }
+
+        val subtitle = TextView(activity).apply {
+            setTextColor(Color.parseColor("#B8C0FF"))
+            textSize = 11f
+            maxLines = 1
+        }
+
+        val padding = (activity.resources.displayMetrics.density * 14).toInt()
+
+        val banner = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#CC0C1240"))
+            setPadding(padding, padding, padding, padding)
+            isFocusable = false
+            isFocusableInTouchMode = false
+            isClickable = false
+            visibility = View.GONE
+
+            addView(title)
+            addView(subtitle)
+        }
+
+        decorView.addView(banner)
+
+        bannerContainer = banner
+        bannerTitle = title
+        bannerSubtitle = subtitle
     }
 
     // ============================================================
@@ -476,6 +619,12 @@ class TvOverlayController(
             container?.visibility =
                 View.GONE
 
+            bannerHideRunnable?.let {
+                mainHandler.removeCallbacks(it)
+            }
+            bannerHideRunnable = null
+            bannerContainer?.visibility = View.GONE
+
             // Al salir de TV o cambiar de categoría,
             // liberamos también la sesión multimedia.
             releaseCurrentPlayer()
@@ -503,7 +652,22 @@ class TvOverlayController(
 
             releaseCurrentPlayer()
 
+            bannerHideRunnable?.let {
+                mainHandler.removeCallbacks(it)
+            }
+            bannerHideRunnable = null
+
             container?.let { view ->
+
+                val parent =
+                    view.parent as? FrameLayout
+
+                parent?.removeView(
+                    view
+                )
+            }
+
+            bannerContainer?.let { view ->
 
                 val parent =
                     view.parent as? FrameLayout
@@ -517,6 +681,10 @@ class TvOverlayController(
             surfaceView = null
             container = null
             currentUrl = null
+
+            bannerContainer = null
+            bannerTitle = null
+            bannerSubtitle = null
 
             Log.i(
                 TAG,

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -44,6 +45,20 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   String? _error;
 
+  // Mide en tiempo real dónde queda el hueco del video (mini panel
+  // "EN VIVO" o pantalla completa) para posicionar el overlay nativo
+  // exactamente ahí, en vez de coordenadas fijas de laboratorio.
+  final GlobalKey _videoSlotKey = GlobalKey();
+
+  // URL y canal que el overlay nativo tiene realmente cargados en
+  // este momento (puede no coincidir todavía con _selectedChannel
+  // mientras el debounce de zapping está en curso).
+  String? _currentStreamUrl;
+  int? _playingChannelId;
+
+  bool _isFullscreen = false;
+  final FocusNode _fullscreenFocusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +66,17 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     WakelockPlus.enable();
 
     _loadCategories();
+  }
+
+  // ============================================================
+  // OVERLAY: OCULTAR Y LIMPIAR ESTADO
+  // ============================================================
+
+  Future<void> _hideOverlay() async {
+    _currentStreamUrl = null;
+    _playingChannelId = null;
+
+    await TvOverlayService.hide();
   }
 
   // ============================================================
@@ -75,7 +101,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       if (categories.isNotEmpty) {
         await _selectCategory(categories.first);
       } else {
-        await TvOverlayService.hide();
+        await _hideOverlay();
       }
     } catch (e) {
       if (!mounted) return;
@@ -88,7 +114,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         );
       });
 
-      await TvOverlayService.hide();
+      await _hideOverlay();
     }
   }
 
@@ -105,7 +131,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
     // Ocultamos temporalmente el video mientras se carga
     // la nueva categoría.
-    await TvOverlayService.hide();
+    await _hideOverlay();
 
     if (!mounted) return;
 
@@ -153,7 +179,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           firstChannel!,
         );
       } else {
-        await TvOverlayService.hide();
+        await _hideOverlay();
       }
     } catch (e) {
       if (!mounted) return;
@@ -164,47 +190,198 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         _selectedChannel = null;
       });
 
-      await TvOverlayService.hide();
+      await _hideOverlay();
     }
   }
 
   // ============================================================
-  // SELECCIÓN MANUAL DE CANAL
+  // PANTALLA COMPLETA
   // ============================================================
 
-  void _selectChannel(
+  // El usuario elige un canal desde la lista: lo reproducimos
+  // inmediatamente en pantalla completa (comportamiento estándar
+  // de un decodificador de TV al presionar OK sobre un canal).
+  void _openFullscreen(
     LiveChannel channel,
   ) {
-    if (_selectedChannel?.id == channel.id) {
-      return;
-    }
+    _channelDebounce?.cancel();
+    _channelDebounce = null;
 
+    // Si el canal ya se estaba reproduciendo en el mini panel,
+    // no hace falta pedir la URL otra vez: solo re-posicionamos
+    // el overlay a pantalla completa.
+    final alreadyPlaying = _playingChannelId == channel.id;
+
+    setState(() {
+      _selectedChannel = channel;
+      _isFullscreen = true;
+    });
+
+    if (alreadyPlaying) {
+      _pushOverlayGeometry();
+    } else {
+      _showNativeOverlay(channel);
+    }
+  }
+
+  void _closeFullscreen() {
+    setState(() {
+      _isFullscreen = false;
+    });
+
+    TvOverlayService.hideChannelBanner();
+    _pushOverlayGeometry();
+  }
+
+  // ============================================================
+  // ZAPPING (avanzar/retroceder canal en pantalla completa)
+  // ============================================================
+
+  LiveChannel? _channelAt(int index) {
+    if (_channels.isEmpty) return null;
+
+    final normalized = index % _channels.length;
+
+    return _channels[
+        normalized < 0 ? normalized + _channels.length : normalized];
+  }
+
+  void _advanceChannel(int delta) {
+    if (_channels.isEmpty || _selectedChannel == null) return;
+
+    final currentIndex = _channels.indexWhere(
+      (c) => c.id == _selectedChannel!.id,
+    );
+
+    final baseIndex = currentIndex == -1 ? 0 : currentIndex;
+
+    final next = _channelAt(baseIndex + delta);
+
+    if (next == null) return;
+
+    _zapToChannel(next);
+  }
+
+  void _zapToChannel(LiveChannel channel) {
     setState(() {
       _selectedChannel = channel;
     });
 
-    // Si todavía estaba esperando otro canal, lo cancelamos.
-    _channelDebounce?.cancel();
+    _showZapBanner(channel);
 
-    // Esperamos 500 ms.
-    //
-    // Si el usuario sigue navegando por la lista, este Timer
-    // será reemplazado y solamente se reproducirá finalmente
-    // el último canal seleccionado.
+    // Igual que en la navegación por la lista: si el usuario sigue
+    // machucando la flecha, solo pedimos el stream del último canal
+    // en el que se detuvo, para no saturar al backend de peticiones.
+    _channelDebounce?.cancel();
     _channelDebounce = Timer(
-      const Duration(milliseconds: 500),
+      const Duration(milliseconds: 350),
       () {
         if (!mounted) return;
 
-        // Segunda protección:
-        // verificamos que el canal siga siendo el seleccionado.
-        if (_selectedChannel?.id != channel.id) {
-          return;
-        }
+        if (_selectedChannel?.id != channel.id) return;
 
         _showNativeOverlay(channel);
       },
     );
+  }
+
+  void _showZapBanner(LiveChannel channel) {
+    final index = _channels.indexWhere((c) => c.id == channel.id);
+    final position = index == -1 ? '' : '${index + 1}/${_channels.length}  ';
+    final category = _selectedCategory?.name.toUpperCase() ?? '';
+
+    final size = MediaQuery.of(context).size;
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+
+    const bannerWidthDp = 380.0;
+    const bannerHeightDp = 80.0;
+    const marginDp = 32.0;
+
+    TvOverlayService.showChannelBanner(
+      title: '$position${channel.name}',
+      subtitle: category,
+      x: (marginDp * dpr).round(),
+      y: ((size.height - bannerHeightDp - marginDp) * dpr).round(),
+      width: (bannerWidthDp * dpr).round(),
+      height: (bannerHeightDp * dpr).round(),
+      autoHideMs: 4000,
+    );
+  }
+
+  KeyEventResult _handleFullscreenKey(
+    FocusNode node,
+    KeyEvent event,
+  ) {
+    if (!_isFullscreen) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    final key = event.logicalKey;
+
+    if (key == LogicalKeyboardKey.arrowRight) {
+      _advanceChannel(1);
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _advanceChannel(-1);
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.goBack ||
+        key == LogicalKeyboardKey.escape) {
+      _closeFullscreen();
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
+  // ============================================================
+  // GEOMETRÍA DEL OVERLAY NATIVO
+  //
+  // El video nativo se posiciona exactamente sobre el hueco que
+  // Flutter reserva para él (_videoSlotKey), sea el mini panel
+  // "EN VIVO" o la pantalla completa. Así nunca se monta encima
+  // del banner de publicidad ni de ningún otro panel.
+  // ============================================================
+
+  Rect? _measureVideoSlotRect() {
+    final renderObject = _videoSlotKey.currentContext?.findRenderObject();
+
+    if (renderObject is! RenderBox || !renderObject.hasSize) {
+      return null;
+    }
+
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final topLeft = renderObject.localToGlobal(Offset.zero);
+    final size = renderObject.size;
+
+    return Rect.fromLTWH(
+      topLeft.dx * dpr,
+      topLeft.dy * dpr,
+      size.width * dpr,
+      size.height * dpr,
+    );
+  }
+
+  void _pushOverlayGeometry() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      final url = _currentStreamUrl;
+      if (url == null) return;
+
+      final rect = _measureVideoSlotRect();
+      if (rect == null) return;
+
+      TvOverlayService.showPlayer(
+        url: url,
+        x: rect.left.round(),
+        y: rect.top.round(),
+        width: rect.width.round().clamp(1, 1 << 20).toInt(),
+        height: rect.height.round().clamp(1, 1 << 20).toInt(),
+      );
+    });
   }
 
   // ============================================================
@@ -247,20 +424,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         '${channel.name} (${channel.id})',
       );
 
-      await TvOverlayService.showPlayer(
-        url: url,
+      _currentStreamUrl = url;
+      _playingChannelId = channel.id;
 
-        // TEMPORAL:
-        // estas coordenadas pertenecen al laboratorio que ya
-        // comprobamos físicamente en las TVs.
-        //
-        // Más adelante las calcularemos automáticamente según
-        // la posición real del panel EN VIVO.
-        x: 700,
-        y: 220,
-        width: 500,
-        height: 350,
-      );
+      // La geometría real (mini panel "EN VIVO" o pantalla completa)
+      // se mide y se envía en _pushOverlayGeometry().
+      _pushOverlayGeometry();
     } catch (e) {
       debugPrint(
         'TV OVERLAY ERROR: $e',
@@ -272,7 +441,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       // accidentalmente el canal nuevo.
       if (mounted &&
           _selectedChannel?.id == channel.id) {
-        await TvOverlayService.hide();
+        await _hideOverlay();
       }
     }
   }
@@ -286,7 +455,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     _channelDebounce?.cancel();
     _channelDebounce = null;
 
-    TvOverlayService.hide();
+    _fullscreenFocusNode.dispose();
+
+    TvOverlayService.hideChannelBanner();
+    _hideOverlay();
 
     WakelockPlus.disable();
 
@@ -299,6 +471,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isFullscreen) {
+      return _buildFullscreen();
+    }
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -339,6 +515,26 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // PANTALLA COMPLETA
+  // ============================================================
+
+  Widget _buildFullscreen() {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Focus(
+        focusNode: _fullscreenFocusNode,
+        autofocus: true,
+        onKeyEvent: _handleFullscreenKey,
+        // El banner de canal y el video se dibujan de forma nativa
+        // (ver TvOverlayService.showChannelBanner) porque el
+        // SurfaceView del reproductor queda por encima de cualquier
+        // widget de Flutter dibujado en esta misma zona.
+        child: SizedBox.expand(key: _videoSlotKey),
       ),
     );
   }
@@ -564,7 +760,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               },
 
               onTap: () {
-                _selectChannel(channel);
+                _openFullscreen(channel);
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 140),
@@ -742,11 +938,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         children: [
           // Espacio reservado para el SurfaceView nativo.
           //
-          // Por ahora mantenemos la geometría de laboratorio
-          // sin modificar el reproductor estable.
-          const Expanded(
+          // Su posición real se mide con _videoSlotKey y se envía
+          // al overlay nativo, así nunca se monta encima del banner
+          // de publicidad de más abajo.
+          Expanded(
             flex: 7,
-            child: SizedBox.expand(),
+            child: SizedBox.expand(key: _videoSlotKey),
           ),
 
           const SizedBox(height: 12),

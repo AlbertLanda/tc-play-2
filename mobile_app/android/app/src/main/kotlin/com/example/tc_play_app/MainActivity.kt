@@ -106,6 +106,46 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                "showChannelBanner" -> {
+                    val title =
+                        call.argument<String>("title") ?: ""
+
+                    val subtitle =
+                        call.argument<String>("subtitle") ?: ""
+
+                    val x =
+                        call.argument<Int>("x") ?: 0
+
+                    val y =
+                        call.argument<Int>("y") ?: 0
+
+                    val width =
+                        call.argument<Int>("width") ?: 1
+
+                    val height =
+                        call.argument<Int>("height") ?: 1
+
+                    val autoHideMs =
+                        call.argument<Int>("autoHideMs")?.toLong() ?: 0L
+
+                    tvOverlayController?.showChannelBanner(
+                        title = title,
+                        subtitle = subtitle,
+                        x = x,
+                        y = y,
+                        width = width,
+                        height = height,
+                        autoHideMs = autoHideMs
+                    )
+
+                    result.success(null)
+                }
+
+                "hideChannelBanner" -> {
+                    tvOverlayController?.hideChannelBanner()
+                    result.success(null)
+                }
+
                 else -> result.notImplemented()
             }
         }
