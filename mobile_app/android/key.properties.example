@@ -1,0 +1,12 @@
+# Copia este archivo a android/key.properties (SIN el .example) y
+# rellena los valores reales. android/key.properties NO se sube a
+# git (ya está en .gitignore) — cada persona que compila un release
+# necesita su propia copia local, apuntando al mismo keystore.
+#
+# Ver docs/publicar_play_store.md para el comando que genera el
+# keystore y más contexto.
+
+storePassword=CONTRASEÑA_DEL_KEYSTORE
+keyPassword=CONTRASEÑA_DE_LA_LLAVE
+keyAlias=tcplay
+storeFile=/ruta/absoluta/a/tcplay-release.jks
