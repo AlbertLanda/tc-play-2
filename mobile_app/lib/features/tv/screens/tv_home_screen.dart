@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
-import '../../../core/constants/app_colors.dart';
 import '../../auth/screens/login_screen.dart';
 import '../../auth/services/tv_session_service.dart';
 import '../../device/screens/device_setup_screen.dart';
 import '../../live_tv/models/live_category.dart';
 import '../../live_tv/models/live_channel.dart';
 import '../../live_tv/services/live_tv_service.dart';
+import '../constants/tv_colors.dart';
 import '../services/tv_overlay_service.dart';
 
 class TvHomeScreen extends StatefulWidget {
@@ -684,7 +684,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: TvColors.background,
       body: SafeArea(
         child: Column(
           children: [
@@ -732,13 +732,13 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   // ============================================================
 
   Widget _buildInitialLoading() {
-    // Igual que el splash del lado móvil: el logo solo, grande,
-    // sin caja ni texto de estado. La imagen trae su propio fondo
-    // negro puro, así que el Scaffold usa ESE MISMO negro (no el
-    // azul marino de AppColors.background) para que no se note el
-    // borde de la imagen como una calcomanía pegada.
+    // Igual que el splash del lado móvil: el logo solo, grande, sin
+    // caja ni texto de estado. La imagen trae su propio fondo negro
+    // puro, así que el Scaffold usa ESE MISMO negro (TvColors.background)
+    // para que no se note el borde de la imagen como una calcomanía
+    // pegada.
     return const Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: TvColors.background,
       body: Center(
         child: Image(
           image: AssetImage('assets/images/tc_play_logo.png'),
@@ -772,7 +772,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             if (_currentStreamUrl == null)
               const Center(
                 child: CircularProgressIndicator(
-                  color: AppColors.accent,
+                  color: TvColors.accent,
                 ),
               ),
           ],
@@ -800,7 +800,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             _error!,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: AppColors.error,
+              color: TvColors.error,
             ),
           ),
         ),
@@ -812,7 +812,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         child: Text(
           'No hay categorías disponibles.',
           style: TextStyle(
-            color: AppColors.textSecondary,
+            color: TvColors.textSecondary,
           ),
         ),
       );
@@ -845,7 +845,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               autofocus: index == 0,
               borderRadius: BorderRadius.circular(10),
 
-              focusColor: AppColors.primary.withValues(
+              focusColor: TvColors.primary.withValues(
                 alpha: .30,
               ),
 
@@ -868,23 +868,23 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 ),
                 decoration: BoxDecoration(
                   color: focused
-                      ? AppColors.accent.withValues(alpha: .22)
+                      ? TvColors.accent.withValues(alpha: .22)
                       : selected
-                          ? AppColors.primary.withValues(alpha: .28)
+                          ? TvColors.primary.withValues(alpha: .28)
                           : Colors.transparent,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
                     color: focused
-                        ? AppColors.accent
+                        ? TvColors.accent
                         : selected
-                            ? AppColors.primary
+                            ? TvColors.primary
                             : Colors.transparent,
                     width: focused ? 3 : 2,
                   ),
                   boxShadow: focused
                       ? [
                           BoxShadow(
-                            color: AppColors.accent.withValues(alpha: .45),
+                            color: TvColors.accent.withValues(alpha: .45),
                             blurRadius: 16,
                             spreadRadius: 1,
                           ),
@@ -898,10 +898,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                           ? Icons.play_arrow_rounded
                           : Icons.folder_outlined,
                       color: focused
-                          ? AppColors.textPrimary
+                          ? TvColors.textPrimary
                           : selected
-                              ? AppColors.accent
-                              : AppColors.textSecondary,
+                              ? TvColors.accent
+                              : TvColors.textSecondary,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -911,8 +911,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: focused || selected
-                              ? AppColors.textPrimary
-                              : AppColors.textSecondary,
+                              ? TvColors.textPrimary
+                              : TvColors.textSecondary,
                           fontSize: 15,
                           fontWeight: focused || selected
                               ? FontWeight.w700
@@ -940,7 +940,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         child: Text(
           'Selecciona una categoría.',
           style: TextStyle(
-            color: AppColors.textSecondary,
+            color: TvColors.textSecondary,
           ),
         ),
       );
@@ -957,7 +957,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         child: Text(
           'No hay canales disponibles.',
           style: TextStyle(
-            color: AppColors.textSecondary,
+            color: TvColors.textSecondary,
           ),
         ),
       );
@@ -990,7 +990,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               borderRadius:
                   BorderRadius.circular(10),
               focusColor:
-                  AppColors.primary.withValues(
+                  TvColors.primary.withValues(
                 alpha: .30,
               ),
 
@@ -1013,18 +1013,18 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 ),
                 decoration: BoxDecoration(
                   color: focused
-                      ? AppColors.accent.withValues(alpha: .22)
+                      ? TvColors.accent.withValues(alpha: .22)
                       : selected
-                          ? AppColors.primary.withValues(alpha: .28)
+                          ? TvColors.primary.withValues(alpha: .28)
                           : Colors.transparent,
 
                   borderRadius: BorderRadius.circular(10),
 
                   border: Border.all(
                     color: focused
-                        ? AppColors.accent
+                        ? TvColors.accent
                         : selected
-                            ? AppColors.primary
+                            ? TvColors.primary
                             : Colors.transparent,
                     width: focused ? 3 : 2,
                   ),
@@ -1032,7 +1032,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                   boxShadow: focused
                       ? [
                           BoxShadow(
-                            color: AppColors.accent.withValues(alpha: .45),
+                            color: TvColors.accent.withValues(alpha: .45),
                             blurRadius: 16,
                             spreadRadius: 1,
                           ),
@@ -1055,10 +1055,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                                 TextOverflow.ellipsis,
                             style: TextStyle(
                               color: focused
-                                  ? AppColors.textPrimary
+                                  ? TvColors.textPrimary
                                   : selected
-                                      ? AppColors.accent
-                                      : AppColors.textSecondary,
+                                      ? TvColors.accent
+                                      : TvColors.textSecondary,
                               fontSize: 15,
                               fontWeight: selected
                                   ? FontWeight.w700
@@ -1105,7 +1105,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         ),
         child: const Icon(
           Icons.live_tv_rounded,
-          color: AppColors.textSecondary,
+          color: TvColors.textSecondary,
         ),
       );
     }
@@ -1152,13 +1152,13 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             Icon(
               Icons.live_tv_rounded,
               size: 70,
-              color: AppColors.textSecondary,
+              color: TvColors.textSecondary,
             ),
             SizedBox(height: 18),
             Text(
               'Selecciona un canal',
               style: TextStyle(
-                color: AppColors.textPrimary,
+                color: TvColors.textPrimary,
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
               ),
@@ -1198,7 +1198,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               borderRadius: BorderRadius.circular(10),
               child: InkWell(
                 borderRadius: BorderRadius.circular(10),
-                focusColor: AppColors.primary.withValues(alpha: .30),
+                focusColor: TvColors.primary.withValues(alpha: .30),
                 onFocusChange: (hasFocus) {
                   setState(() {
                     _previewFocused = hasFocus;
@@ -1212,7 +1212,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _previewFocused
-                          ? AppColors.accent
+                          ? TvColors.accent
                           : Colors.transparent,
                       width: 3,
                     ),
@@ -1228,7 +1228,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                         if (_currentStreamUrl == null)
                           const Center(
                             child: CircularProgressIndicator(
-                              color: AppColors.accent,
+                              color: TvColors.accent,
                             ),
                           ),
                       ],
@@ -1275,7 +1275,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: AppColors.textPrimary,
+                          color: TvColors.textPrimary,
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
@@ -1287,7 +1287,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: AppColors.textSecondary,
+                            color: TvColors.textSecondary,
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
                             letterSpacing: .8,
@@ -1325,15 +1325,18 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
         vertical: 12,
       ),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        // Degradado oscuro a propósito (no TvColors.primary/accent,
+        // que son claros): el texto encima es blanco y necesita un
+        // fondo oscuro para seguir siendo legible.
+        gradient: const LinearGradient(
           colors: [
-            AppColors.primary.withValues(alpha: .90),
-            AppColors.accent.withValues(alpha: .55),
+            Color(0xFF1C1C1C),
+            Color(0xFF3A3A3A),
           ],
         ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: AppColors.accent.withValues(alpha: .45),
+          color: TvColors.accent.withValues(alpha: .35),
         ),
       ),
       child: Row(
@@ -1347,7 +1350,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             ),
             child: const Icon(
               Icons.campaign_rounded,
-              color: AppColors.textPrimary,
+              color: TvColors.textPrimary,
               size: 25,
             ),
           ),
@@ -1362,7 +1365,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: AppColors.textPrimary,
+                    color: TvColors.textPrimary,
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
                   ),
@@ -1373,7 +1376,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: AppColors.textSecondary,
+                    color: TvColors.textSecondary,
                     fontSize: 11,
                   ),
                 ),
@@ -1383,7 +1386,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           SizedBox(width: 12),
           Icon(
             Icons.arrow_forward_ios_rounded,
-            color: AppColors.textPrimary,
+            color: TvColors.textPrimary,
             size: 15,
           ),
         ],
@@ -1401,7 +1404,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       padding: const EdgeInsets.symmetric(
         horizontal: 32,
       ),
-      color: AppColors.surface,
+      color: TvColors.surface,
       child: Row(
         children: [
           Image.asset(
@@ -1412,7 +1415,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           const Text(
             'TC PLAY',
             style: TextStyle(
-              color: AppColors.textPrimary,
+              color: TvColors.textPrimary,
               fontSize: 22,
               fontWeight: FontWeight.w800,
             ),
@@ -1442,12 +1445,12 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       child: InkWell(
         onTap: onTap,
         customBorder: const CircleBorder(),
-        focusColor: AppColors.primary.withValues(alpha: .35),
+        focusColor: TvColors.primary.withValues(alpha: .35),
         child: Padding(
           padding: const EdgeInsets.all(8),
           child: Icon(
             icon,
-            color: AppColors.textSecondary,
+            color: TvColors.textSecondary,
             size: 28,
           ),
         ),
@@ -1464,17 +1467,20 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: AppColors.card,
+          backgroundColor: TvColors.card,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           title: Row(
             children: [
               const CircleAvatar(
-                backgroundColor: AppColors.primary,
+                // Blanco sólido con ícono negro: TvColors.primary
+                // (gris claro) no da suficiente contraste para un
+                // ícono blanco encima.
+                backgroundColor: TvColors.accent,
                 child: Icon(
                   Icons.person_rounded,
-                  color: AppColors.textPrimary,
+                  color: Colors.black,
                 ),
               ),
               const SizedBox(width: 14),
@@ -1485,7 +1491,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                     Text(
                       widget.username,
                       style: const TextStyle(
-                        color: AppColors.textPrimary,
+                        color: TvColors.textPrimary,
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1510,7 +1516,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text(
                 'CERRAR',
-                style: TextStyle(color: AppColors.textSecondary),
+                style: TextStyle(color: TvColors.textSecondary),
               ),
             ),
             TextButton(
@@ -1521,7 +1527,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               child: const Text(
                 'CERRAR SESIÓN',
                 style: TextStyle(
-                  color: AppColors.error,
+                  color: TvColors.error,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -1554,18 +1560,18 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: AppColors.card,
+          backgroundColor: TvColors.card,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           title: const Text(
             'Configuración',
-            style: TextStyle(color: AppColors.textPrimary),
+            style: TextStyle(color: TvColors.textPrimary),
           ),
           content: const Text(
             '¿Este dispositivo se configuró como el equivocado? '
             'Puedes cambiarlo entre celular/tablet o televisor.',
-            style: TextStyle(color: AppColors.textSecondary),
+            style: TextStyle(color: TvColors.textSecondary),
           ),
           actions: [
             TextButton(
@@ -1573,7 +1579,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text(
                 'CANCELAR',
-                style: TextStyle(color: AppColors.textSecondary),
+                style: TextStyle(color: TvColors.textSecondary),
               ),
             ),
             TextButton(
@@ -1584,7 +1590,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               child: const Text(
                 'CAMBIAR DISPOSITIVO',
                 style: TextStyle(
-                  color: AppColors.accent,
+                  color: TvColors.accent,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -1614,7 +1620,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.card,
+        color: TvColors.card,
         borderRadius:
             BorderRadius.circular(18),
         border: Border.all(
@@ -1637,7 +1643,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             child: Text(
               title,
               style: const TextStyle(
-                color: AppColors.textPrimary,
+                color: TvColors.textPrimary,
                 fontSize: 16,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 1.1,
