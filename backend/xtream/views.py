@@ -1,8 +1,16 @@
+import logging
+
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
 from .services.client import XtreamClient
+from .services import transcoder
+from .normalizers import normalize_login, normalize_categories, normalize_channels
+from .errors import build_error_response
+
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(["POST"])
@@ -12,7 +20,11 @@ def xtream_login(request):
 
     if not username or not password:
         return Response(
-            {"detail": "Usuario y contraseña son obligatorios."},
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario y contraseña son obligatorios."
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -20,20 +32,41 @@ def xtream_login(request):
         client = XtreamClient()
         data = client.authenticate(username, password)
 
+        user = normalize_login(data)
+
+        # Xtream responde HTTP 200 con auth: 0 cuando las credenciales
+        # son incorrectas, por eso se valida aquí y no en el except.
+        if user["auth"] != 1:
+            return Response(
+                {
+                    "success": False,
+                    "error_code": "invalid_credentials",
+                    "message": "Usuario o contraseña incorrectos."
+                },
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # La línea autenticó (auth == 1) pero solo puede ingresar si la
+        # cuenta está activa. Si status no es "Active" (vencida, deshabilitada,
+        # baneada, etc.) se bloquea el acceso con inactive_account.
+        if not user["is_active"]:
+            return Response(
+                {
+                    "success": False,
+                    "error_code": "inactive_account",
+                    "message": "La cuenta no se encuentra activa."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         return Response({
             "success": True,
-            "data": data
+            "user": user
         })
 
     except Exception as error:
-        return Response(
-            {
-                "success": False,
-                "detail": "No se pudo validar el usuario en Xtream.",
-                "error": str(error)
-            },
-            status=status.HTTP_502_BAD_GATEWAY
-        )
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
 
 
 @api_view(["POST"])
@@ -43,7 +76,11 @@ def live_categories(request):
 
     if not username or not password:
         return Response(
-            {"detail": "Usuario y contraseña son obligatorios."},
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario y contraseña son obligatorios."
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -53,18 +90,12 @@ def live_categories(request):
 
         return Response({
             "success": True,
-            "data": data
+            "categories": normalize_categories(data)
         })
 
     except Exception as error:
-        return Response(
-            {
-                "success": False,
-                "detail": "No se pudieron obtener las categorías.",
-                "error": str(error)
-            },
-            status=status.HTTP_502_BAD_GATEWAY
-        )
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
 
 
 @api_view(["POST"])
@@ -75,7 +106,11 @@ def live_streams(request):
 
     if not username or not password:
         return Response(
-            {"detail": "Usuario y contraseña son obligatorios."},
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario y contraseña son obligatorios."
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -85,18 +120,12 @@ def live_streams(request):
 
         return Response({
             "success": True,
-            "data": data
+            "channels": normalize_channels(data)
         })
 
     except Exception as error:
-        return Response(
-            {
-                "success": False,
-                "detail": "No se pudieron obtener los canales.",
-                "error": str(error)
-            },
-            status=status.HTTP_502_BAD_GATEWAY
-        )
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
     
 @api_view(["POST"])
 def live_stream_url(request):
@@ -107,7 +136,11 @@ def live_stream_url(request):
 
     if not username or not password or not stream_id:
         return Response(
-            {"detail": "Usuario, contraseña y stream_id son obligatorios."},
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario, contraseña y stream_id son obligatorios."
+            },
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -126,11 +159,428 @@ def live_stream_url(request):
         })
 
     except Exception as error:
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
+
+
+@api_view(["POST"])
+def live_proxy_url(request):
+    """
+    Endpoint experimental de proxy/transcoder HLS.
+
+    Toma un stream original de Xtream, lanza FFmpeg y devuelve una URL HLS
+    limpia (index.m3u8) que el web player puede consumir cuando un canal no
+    reproduce directo. La URL original con credenciales NUNCA se devuelve.
+    """
+    username = request.data.get("username")
+    password = request.data.get("password")
+    stream_id = request.data.get("stream_id")
+
+    if not username or not password or not stream_id:
         return Response(
             {
                 "success": False,
-                "detail": "No se pudo construir la URL de reproducción.",
-                "error": str(error)
+                "error_code": "validation_error",
+                "message": "Usuario, contraseña y stream_id son obligatorios."
             },
-            status=status.HTTP_502_BAD_GATEWAY
+            status=status.HTTP_400_BAD_REQUEST
         )
+
+    # Saneamiento del stream_id: solo alfanuméricos (evita path traversal
+    # al usarlo como nombre de carpeta de salida HLS).
+    try:
+        safe_stream_id = transcoder.sanitize_stream_id(stream_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "validation_error",
+                "message": "stream_id inválido."
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # device_profile OPCIONAL: selecciona el perfil de salida (mobile / tv /
+    # web). Si no se envía, se usa el default (mobile) para no romper la app
+    # móvil actual. Un valor no reconocido se rechaza de forma controlada.
+    try:
+        device_profile = transcoder.normalize_device_profile(
+            request.data.get("device_profile")
+        )
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_device_profile",
+                "message": "device_profile inválido. Use 'mobile', 'tv' o 'web'."
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        # URL original de Xtream (entrada para FFmpeg). Se usa el formato TS
+        # crudo del canal en vivo; no se expone en la respuesta.
+        client = XtreamClient()
+        source_url = client.build_live_stream_url(
+            username=username,
+            password=password,
+            stream_id=safe_stream_id,
+            output="ts",
+        )
+
+        # Si XTREAM_BASE_URL no está configurado, la URL saldría incompleta
+        # (sin http://host) y FFmpeg fallaría más adelante. Se corta aquí con
+        # stream_url_error para no lanzar un proceso inútil.
+        if not source_url.lower().startswith(("http://", "https://")):
+            raise transcoder.StreamUrlError(
+                "No se pudo construir la URL original del stream."
+            )
+
+        # El modo (remux / transcode_audio / transcode) lo decide el backend
+        # sondeando el stream (incluye la normalización móvil por fps: HD a
+        # 60fps -> transcode 720p30). Ver transcoder.decide_mode().
+        # output_key = "<stream_id>-<device_profile>". Es la identidad real de
+        # la salida: a partir de aquí TODO (espera, diagnóstico, limpieza y
+        # URL) se hace sobre esta clave, nunca sobre el stream_id suelto, para
+        # que el HLS de un perfil no se cruce con el de otro.
+        output_key = transcoder.build_output_key(safe_stream_id, device_profile)
+
+        replace_profile_value = request.data.get("replace_profile", False)
+        replace_profile = str(replace_profile_value).strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "si",
+            "sí",
+        )
+
+        replaced_outputs = []
+        if replace_profile:
+            replaced_outputs = transcoder.stop_outputs_for_device_profile(
+                device_profile,
+                keep_output_key=output_key,
+            )
+
+        output_key, reused, mode = transcoder.start_hls_transcode(
+            source_url,
+            safe_stream_id,
+            device_profile=device_profile,
+            output_key=output_key,
+        )
+
+        # El transcode completo tarda más en producir el primer segmento
+        # (libx264 llena su buffer); se le da más margen que a un remux para
+        # no fallar por timeout.
+        ready_timeout = 40 if mode == "transcode" else 15
+        if not reused and not transcoder.wait_for_hls_ready(
+            output_key, timeout_seconds=ready_timeout
+        ):
+            # Se captura el diagnóstico ANTES de limpiar, para explicar por qué
+            # no quedó listo (faltó index, segmentos, proceso vivo o dañado).
+            hls_status = transcoder.get_hls_status(output_key)
+            transcoder.stop_hls_transcode(output_key)
+            transcoder.remove_hls_output(output_key)
+
+            return Response(
+                {
+                    "success": False,
+                    "error_code": "hls_not_ready",
+                    "message": "El canal no generó segmentos HLS suficientes a tiempo.",
+                    "stream_id": safe_stream_id,
+                    "hls_status": hls_status,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # Log técnico seguro: refleja si el HLS se reutilizó o se (re)generó.
+        # No expone usuario, contraseña ni la URL original del stream.
+        logger.info(
+            "proxy_url stream_id=%s reason=%s hls_reused=%s mode=%s device_profile=%s",
+            safe_stream_id,
+            "reused_live_hls" if reused else "regenerated_hls",
+            reused,
+            mode,
+            device_profile,
+        )
+
+        return Response({
+            "success": True,
+            "stream_id": safe_stream_id,
+            "hls_url": transcoder.build_hls_url(request, output_key),
+            "mode": mode,
+            "device_profile": device_profile,
+            "reused": reused,
+            "replaced_outputs": replaced_outputs,
+        })
+
+    except transcoder.TranscoderError as error:
+        return Response(
+            {
+                "success": False,
+                "error_code": error.error_code,
+                "message": str(error),
+            },
+            status=error.http_status
+        )
+
+    except Exception as error:
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)
+
+
+@api_view(["POST"])
+def live_stop_proxy(request):
+    """
+    Detiene el proceso FFmpeg asociado a un canal de Xtream y borra su salida
+    HLS, para que un canal cerrado no deje procesos vivos ni carpetas muertas
+    reutilizables. Equivalente al stop-proxy de Astra.
+
+    device_profile OPCIONAL (default mobile): detiene SOLO la salida de ese
+    perfil. Cerrar el canal en la TV no debe matar el FFmpeg que está viendo
+    alguien más desde el celular.
+    """
+    stream_id = request.data.get("stream_id")
+
+    if not stream_id:
+        return Response(
+            {
+                "success": False,
+                "error_code": "missing_stream_id",
+                "message": "El campo stream_id es obligatorio.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        safe_stream_id = transcoder.sanitize_stream_id(stream_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_stream_id",
+                "message": "El stream_id enviado no es válido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        device_profile = transcoder.normalize_device_profile(
+            request.data.get("device_profile")
+        )
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_device_profile",
+                "message": "device_profile inválido. Use 'mobile', 'tv' o 'web'.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        output_key = transcoder.build_output_key(safe_stream_id, device_profile)
+        stopped = transcoder.stop_hls_transcode(output_key)
+        # Se borra también la salida HLS: si quedara un index.m3u8 "fresco",
+        # un proxy-url inmediato lo reutilizaría aunque ya no haya proceso.
+        output_removed = transcoder.remove_hls_output(output_key)
+
+        return Response({
+            "success": True,
+            "stream_id": safe_stream_id,
+            "device_profile": device_profile,
+            "stopped": stopped,
+            "output_removed": output_removed,
+        })
+
+    except Exception:
+        return Response(
+            {
+                "success": False,
+                "error_code": "unexpected_error",
+                "message": "Ocurrió un error inesperado al detener el proxy.",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["GET"])
+def live_proxy_status(request):
+    """
+    Devuelve el estado global del transcoder: procesos FFmpeg activos, límite
+    configurado y salidas HLS detectadas. Solo datos de monitoreo; nunca
+    URLs de origen, usuarios ni contraseñas.
+    """
+    try:
+        transcoder_status = transcoder.get_transcoder_status()
+
+        return Response({
+            "success": True,
+            **transcoder_status,
+        })
+
+    except Exception:
+        return Response(
+            {
+                "success": False,
+                "error_code": "unexpected_error",
+                "message": "Ocurrió un error inesperado al consultar el estado.",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["GET"])
+def live_hls_status(request, stream_id):
+    """
+    Diagnóstico de la salida HLS generada por el backend para un canal.
+
+    Informa si existe index.m3u8, su tamaño, la cantidad de segmentos .ts,
+    si la salida está dañada y si el proceso FFmpeg sigue vivo. Sirve para
+    diferenciar un canal que falla por HLS incompleto de uno cuyo proceso
+    murió. No expone usuario, contraseña ni la URL original del stream.
+
+    El perfil se pasa como query param (?device_profile=tv) y por defecto es
+    mobile: cada perfil tiene su propia salida y por tanto su propio estado.
+    """
+    try:
+        safe_stream_id = transcoder.sanitize_stream_id(stream_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_stream_id",
+                "message": "El stream_id enviado no es válido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        device_profile = transcoder.normalize_device_profile(
+            request.query_params.get("device_profile")
+        )
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_device_profile",
+                "message": "device_profile inválido. Use 'mobile', 'tv' o 'web'.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        hls_status = transcoder.get_hls_status(
+            transcoder.build_output_key(safe_stream_id, device_profile)
+        )
+
+        return Response({
+            "success": True,
+            **hls_status,
+        })
+
+    except Exception:
+        return Response(
+            {
+                "success": False,
+                "error_code": "unexpected_error",
+                "message": "Ocurrió un error inesperado al consultar el estado HLS.",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["POST"])
+def live_diagnose_stream(request):
+    """
+    Diagnóstico técnico de un canal Xtream: construye la URL del stream con
+    las credenciales enviadas, la sondea con ffprobe y devuelve los códecs,
+    la compatibilidad web y el modo de procesamiento recomendado.
+
+    Ayuda a entender por qué un canal reproduce directo y otro necesita
+    transcode. La URL con credenciales NUNCA se devuelve.
+    """
+    username = request.data.get("username")
+    password = request.data.get("password")
+    stream_id = request.data.get("stream_id")
+    output = request.data.get("output", "m3u8")
+
+    if not username or not password:
+        return Response(
+            {
+                "success": False,
+                "error_code": "missing_credentials",
+                "message": "Usuario y contraseña son obligatorios.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not stream_id:
+        return Response(
+            {
+                "success": False,
+                "error_code": "missing_stream_id",
+                "message": "El campo stream_id es obligatorio.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        safe_stream_id = transcoder.sanitize_stream_id(stream_id)
+    except ValueError:
+        return Response(
+            {
+                "success": False,
+                "error_code": "invalid_stream_id",
+                "message": "El stream_id enviado no es válido.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # ffprobe es parte del paquete de FFmpeg; si no está, no hay diagnóstico.
+    if not transcoder.is_ffmpeg_available():
+        return Response(
+            {
+                "success": False,
+                "error_code": "ffmpeg_not_available",
+                "message": "FFmpeg/ffprobe no está disponible.",
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    try:
+        client = XtreamClient()
+        stream_url = client.build_live_stream_url(
+            username=username,
+            password=password,
+            stream_id=safe_stream_id,
+            output=output,
+        )
+
+        # Sin XTREAM_BASE_URL la URL sale incompleta y ffprobe fallaría.
+        if not stream_url.lower().startswith(("http://", "https://")):
+            return Response(
+                {
+                    "success": False,
+                    "error_code": "stream_url_error",
+                    "message": "No se pudo construir la URL del stream.",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # Un solo sondeo con ffprobe; el modo se decide sobre esos códecs.
+        video_codec, audio_codec = transcoder.probe_codecs(stream_url)
+        web_compatible = transcoder.is_web_compatible(video_codec, audio_codec)
+        recommended_mode = transcoder.mode_from_codecs(video_codec, audio_codec)
+
+        return Response({
+            "success": True,
+            "stream_id": safe_stream_id,
+            "video_codec": video_codec,
+            "audio_codec": audio_codec,
+            "web_compatible": web_compatible,
+            "recommended_mode": recommended_mode,
+        })
+
+    except Exception as error:
+        payload, http_status = build_error_response(error)
+        return Response(payload, status=http_status)

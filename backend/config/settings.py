@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 
+from decouple import config
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -20,13 +22,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-u395&evabi2_x1#9$x9qfpo#8hfzg0&qj79gnn0j=!9it9_qm@'
+DEBUG = config("DEBUG", default=True, cast=bool)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+SECRET_KEY = config("SECRET_KEY", default="dev-secret-key")
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = config(
+    "ALLOWED_HOSTS",
+    default="127.0.0.1,localhost",
+    cast=lambda value: [item.strip() for item in value.split(",")],
+)
 
 # Application definition
 
@@ -48,11 +53,13 @@ INSTALLED_APPS = [
     "app_config",
     "banners",
     "xtream",
+    "astra",
 ]
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -84,13 +91,27 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if config("DB_NAME", default=""):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": config("DB_NAME"),
+            "USER": config("DB_USER"),
+            "PASSWORD": config("DB_PASSWORD"),
+            "HOST": config("DB_HOST"),
+            "PORT": config("DB_PORT", default="5432"),
+            "OPTIONS": {
+                "sslmode": "require",
+            },
+        }
     }
-}
-
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -127,6 +148,54 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# Media files (archivos generados en runtime: salidas HLS del transcoder, etc.)
+# https://docs.djangoproject.com/en/5.2/topics/files/
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# --- Transcoder HLS (prueba técnica, ver docs/transcoder_hls.md) ---
+# Ruta del binario de FFmpeg. Se deja configurable por entorno para no
+# asumir que está en el PATH del sistema en todos los equipos/servidores.
+FFMPEG_BIN = config("FFMPEG_BIN", default="ffmpeg")
+
+# Ruta del binario de ffprobe (viene junto a FFmpeg). Se usa para leer el
+# códec original del canal y decidir entre remux y transcode.
+FFPROBE_BIN = config("FFPROBE_BIN", default="ffprobe")
+
+# Carpeta raíz donde el transcoder escribe cada salida HLS: MEDIA/hls/<stream_id>/
+HLS_ROOT = MEDIA_ROOT / "hls"
+
+# Segundos que un index.m3u8 se considera "activo/reciente" antes de
+# permitir relanzar un proceso para el mismo stream_id (evita duplicados).
+HLS_ACTIVE_TTL_SECONDS = config("HLS_ACTIVE_TTL_SECONDS", default=30, cast=int)
+
+# Límite de procesos FFmpeg simultáneos. Si se alcanza, el endpoint responde
+# transcoder_busy en vez de lanzar más procesos y saturar el servidor.
+MAX_CONCURRENT_TRANSCODES = config("MAX_CONCURRENT_TRANSCODES", default=5, cast=int)
+
+# Segmentos .ts mínimos que debe haber generado FFmpeg antes de dar el HLS
+# por "listo" y responder al player (Android falla si recibe la URL demasiado
+# pronto). Usado por wait_for_hls_ready() y por el diagnóstico hls-status.
+HLS_MIN_SEGMENTS = config("HLS_MIN_SEGMENTS", default=2, cast=int)
+
+# Normalización móvil por framerate: un canal cuyo video se copiaría tal cual
+# (remux / transcode_audio) pero que emite a MÁS de estos fps se recodifica a
+# 720p30. El decoder de hardware del cel batalla con HD a 60fps (bloques /
+# fotogramas soltados). Usado por transcoder.decide_mode().
+MOBILE_TRANSCODE_MAX_FPS = config("MOBILE_TRANSCODE_MAX_FPS", default=30, cast=int)
+
+# --- Astra playlist ---
+ASTRA_PLAYLIST_URL = config("ASTRA_PLAYLIST_URL", default="")
+
+# Limpieza automática: si la salida HLS de un stream no se actualiza en este
+# tiempo (FFmpeg murió/estancado), se detiene el proceso y se borra la carpeta.
+HLS_CLEANUP_TTL_SECONDS = config("HLS_CLEANUP_TTL_SECONDS", default=300, cast=int)
+
+# Cada cuánto corre el hilo de limpieza en segundo plano.
+HLS_CLEANUP_INTERVAL_SECONDS = config("HLS_CLEANUP_INTERVAL_SECONDS", default=60, cast=int)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -143,3 +212,6 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.JSONParser",
     ],
 }
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
