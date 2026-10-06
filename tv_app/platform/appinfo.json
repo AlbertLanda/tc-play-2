@@ -1,0 +1,11 @@
+{
+  "id": "pe.telecable.tcplay.lg",
+  "version": "0.1.0",
+  "vendor": "Telecable",
+  "type": "web",
+  "main": "index.html",
+  "title": "TC Play",
+  "icon": "assets/icon.png",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true
+}
