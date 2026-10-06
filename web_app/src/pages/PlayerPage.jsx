@@ -5,6 +5,8 @@ import { getStreamUrl, getProxyStreamUrl, stopProxy } from '../api/liveTvApi';
 import { getAstraProxyUrl, stopAstraProxy } from '../api/astraApi';
 import { getChannelLogo } from '../constants/channelLogos';
 import { isChannelFavorite, toggleFavoriteChannel } from '../utils/favorites';
+import { createPlaybackSession } from '../utils/playbackSession';
+
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -20,6 +22,9 @@ import {
   IconHeart,
 } from '../components/Icons';
 
+const ALLOW_STREAM_PROXY = import.meta.env.VITE_ENABLE_STREAM_PROXY === 'true';
+const playbackApi = { getStreamUrl, getProxyStreamUrl, stopProxy, getAstraProxyUrl, stopAstraProxy };
+
 export function PlayerPage({
   session,
   channel,
@@ -33,15 +38,19 @@ export function PlayerPage({
   const hlsRef = useRef(null);
   const tsPlayerRef = useRef(null);
 
-  const hasTriedTsFallbackRef = useRef(false);
+  const playbackSessionRef = useRef(null);
+  const fallbackRequestRef = useRef(null);
+  const userPausedRef = useRef(false);
+  const autoplayBlockedRef = useRef(false);
   const mediaErrorCountRef = useRef(0);
   const lastTimeRef = useRef(0);
   const stallTimerRef = useRef(null);
   const playerContainerRef = useRef(null);
   const controlsTimerRef = useRef(null);
 
-  const [streamUrl, setStreamUrl] = useState('');
-  const [playerMode, setPlayerMode] = useState('hls');
+  const [playback, setPlayback] = useState(null);
+  const streamUrl = playback?.url || '';
+  const playerMode = playback?.mode || 'hls';
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [signalMessage, setSignalMessage] = useState('');
@@ -126,160 +135,96 @@ export function PlayerPage({
   }
 }
 
-  async function loadUrl() {
-
-  if (channel?.isAstra && channel?.stream_url) {
-    console.info('[TC Play] Stream Astra obtenido');
-
-    return {
-      url: channel.stream_url,
-      mode: 'hls',
-    };
+  function newPlaybackSession() {
+    return createPlaybackSession({ channel, session, api: playbackApi, allowProxy: ALLOW_STREAM_PROXY });
   }
 
-
-  // USAR SIEMPRE PROXY PARA XTREAM
-  const proxyUrl = await getProxyStreamUrl(
-    session.username,
-    session.password,
-    channel.id,
-  );
-
-  console.info('[TC Play] Proxy HLS obtenido');
-
-  return {
-    url: proxyUrl,
-    mode: 'hls',
-  };
-
+  function closeSession(playbackSession) {
+    return playbackSession?.close().catch(() => {
+      console.warn('[TC Play] No se pudo liberar la reproducción anterior');
+    });
   }
-  async function switchToFallback() {
-    if (hasTriedTsFallbackRef.current) {
-      return;
-    }
 
+  async function switchToFallback(playbackSession = playbackSessionRef.current) {
+    if (!playbackSession || playbackSession.closed ||
+        playbackSessionRef.current !== playbackSession ||
+        fallbackRequestRef.current === playbackSession) return;
+
+    fallbackRequestRef.current = playbackSession;
     try {
       showSignalStatus('Reconectando señal...');
-      hasTriedTsFallbackRef.current = true;
+      setErrorMessage('');
+      destroyPlayers();
       mediaErrorCountRef.current = 0;
       lastTimeRef.current = 0;
-      setErrorMessage('');
-
-      destroyPlayers();
-
-      if (channel?.isAstra) {
-        console.warn('[TC Play] Cambiando a proxy/transcoder Astra...');
-        setPlayerMode('astra-proxy');
-
-        const proxyUrl = await getAstraProxyUrl(channel.id);
-        console.info('[TC Play] Proxy Astra obtenido');
-
-        setStreamUrl(proxyUrl);
-        return;
+      autoplayBlockedRef.current = false;
+      const next = await playbackSession.fallback({
+        canPlayTs: Boolean(mpegts.getFeatureList().mseLivePlayback),
+      });
+      if (next && playbackSessionRef.current === playbackSession && !playbackSession.closed) {
+        setPlayback(next);
       }
-
-      console.warn('[TC Play] Cambiando a proxy HLS Xtream...');
-      setPlayerMode('hls');
-
-      const proxyUrl = await getProxyStreamUrl(
-        session.username,
-        session.password,
-        channel.id,
-      );
-
-      console.info('[TC Play] Proxy HLS obtenido');
-
-      setStreamUrl(proxyUrl);
     } catch (error) {
-      setErrorMessage(
-        getFriendlyErrorMessage(error.message || 'No se pudo activar el fallback.'),
-      );
-      hideSignalStatus();
+      if (playbackSessionRef.current === playbackSession && !playbackSession.closed) {
+        setErrorMessage(getFriendlyErrorMessage(error.message));
+        hideSignalStatus();
+      }
+    } finally {
+      if (fallbackRequestRef.current === playbackSession) fallbackRequestRef.current = null;
     }
   }
 
-  function startPlaybackMonitor() {
+  function startPlaybackMonitor(playbackSession) {
     const video = videoRef.current;
     let stalledCount = 0;
-
-    if (!video) {
-      return;
-    }
-
-    if (stallTimerRef.current) {
-      clearInterval(stallTimerRef.current);
-    }
+    if (!video) return;
+    if (stallTimerRef.current) clearInterval(stallTimerRef.current);
 
     stallTimerRef.current = setInterval(() => {
-      if (!video || video.paused || video.ended) {
-        return;
-      }
-
+      if (playbackSessionRef.current !== playbackSession || playbackSession.closed ||
+          userPausedRef.current || autoplayBlockedRef.current || video.ended) return;
       const currentTime = video.currentTime;
-
       if (currentTime > lastTimeRef.current) {
         lastTimeRef.current = currentTime;
         stalledCount = 0;
         return;
       }
-
       stalledCount += 1;
-      console.warn('[TC Play] El video no avanza. Intento:', stalledCount);
-
-      if (playerMode === 'hls' && hlsRef.current) {
-        try {
-          hlsRef.current.recoverMediaError();
-          hlsRef.current.startLoad();
-        } catch {
-          console.warn('[TC Play] No se pudo recuperar HLS automáticamente');
-        }
-      }
-
-      if (
-        (playerMode === 'hls' || playerMode === 'ts') &&
-        video.currentTime === 0 &&
-        stalledCount >= 8
-      ) {
-        switchToFallback();
-      }
+      // This also covers startup: video.paused is true until the first frame.
+      if (stalledCount >= 3) switchToFallback(playbackSession);
     }, 4000);
   }
 
   useEffect(() => {
-    async function preparePlayer() {
-      try {
-        setIsLoading(true);
-        setErrorMessage('');
-        hideSignalStatus();
-        setPlayerMode('hls');
+    const playbackSession = newPlaybackSession();
+    playbackSessionRef.current = playbackSession;
+    setPlayback(null);
+    setIsLoading(true);
+    setErrorMessage('');
+    hideSignalStatus();
+    userPausedRef.current = false;
+    autoplayBlockedRef.current = false;
+    mediaErrorCountRef.current = 0;
+    lastTimeRef.current = 0;
 
-        hasTriedTsFallbackRef.current = false;
-        mediaErrorCountRef.current = 0;
-        lastTimeRef.current = 0;
-
-        const playback = await loadUrl();
-
-        setPlayerMode(playback.mode);
-        setStreamUrl(playback.url);
-      } catch (error) {
-        setErrorMessage(getFriendlyErrorMessage(error.message || 'No se pudo cargar el canal.'));
-      } finally {
-        setIsLoading(false);
+    playbackSession.start().then((next) => {
+      if (next && playbackSessionRef.current === playbackSession && !playbackSession.closed) {
+        setPlayback(next);
       }
-    }
-
-    if (channel?.id) {
-      preparePlayer();
-    }
+    }).catch((error) => {
+      if (playbackSessionRef.current === playbackSession && !playbackSession.closed) {
+        setErrorMessage(getFriendlyErrorMessage(error.message));
+      }
+    }).finally(() => {
+      if (playbackSessionRef.current === playbackSession && !playbackSession.closed) setIsLoading(false);
+    });
 
     return () => {
-      if (controlsTimerRef.current) {
-        clearTimeout(controlsTimerRef.current);
-      }
-
+      if (playbackSessionRef.current === playbackSession) playbackSessionRef.current = null;
+      closeSession(playbackSession);
+      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
       destroyPlayers();
     };
-
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [session.username, session.password, channel]);
 
@@ -296,12 +241,26 @@ export function PlayerPage({
   useEffect(() => {
     const video = videoRef.current;
 
-    if (!video || !streamUrl) {
+    const playbackSession = playbackSessionRef.current;
+    if (isLoading || !video || !streamUrl || !playbackSession || playbackSession.closed) {
       return undefined;
     }
 
     destroyPlayers();
     setErrorMessage('');
+    const isCurrent = () => playbackSessionRef.current === playbackSession &&
+      !playbackSession.closed && playbackSession.current === playback;
+    const tryPlay = () => {
+      video.play().catch((error) => {
+        if (!isCurrent()) return;
+        if (error.name === 'NotAllowedError') {
+          autoplayBlockedRef.current = true;
+          showSignalStatus('Presiona reproducir para iniciar el canal.');
+        } else if (error.name !== 'AbortError') {
+          switchToFallback(playbackSession);
+        }
+      });
+    };
 
     const handleWaiting = () => {
       showSignalStatus('Cargando señal...');
@@ -325,7 +284,7 @@ export function PlayerPage({
     };
 
     const handleVideoError = () => {
-      showSignalStatus('Reconectando canal...');
+      if (isCurrent()) switchToFallback(playbackSession);
     };
 
     video.addEventListener('waiting', handleWaiting);
@@ -335,7 +294,9 @@ export function PlayerPage({
     video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('error', handleVideoError);
 
-    if (playerMode === 'hls' || playerMode === 'astra-proxy') {
+    startPlaybackMonitor(playbackSession);
+
+    if (playerMode === 'hls' || playerMode === 'astra-proxy' || playerMode === 'xtream-proxy') {
       if (Hls.isSupported()) {
         const hls = new Hls({
           debug: false,
@@ -370,17 +331,15 @@ export function PlayerPage({
         hls.attachMedia(video);
 
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!isCurrent()) return;
           console.info('[TC Play] Reproducción HLS iniciada');
           hideSignalStatus();
 
-          video.play().catch(() => {
-            console.warn('[TC Play] Autoplay bloqueado');
-          });
-
-          startPlaybackMonitor();
+          tryPlay();
         });
 
         hls.on(Hls.Events.ERROR, (_, data) => {
+          if (!isCurrent()) return;
           console.warn('[TC Play] HLS error detectado');
 
           const details = data?.details || '';
@@ -413,7 +372,7 @@ export function PlayerPage({
               mediaErrorCountRef.current >= 20 &&
               video.currentTime === 0
             ) {
-              switchToFallback();
+              switchToFallback(playbackSession);
             }
 
             return;
@@ -421,7 +380,7 @@ export function PlayerPage({
 
           if (type === Hls.ErrorTypes.NETWORK_ERROR) {
             console.warn('[TC Play] Error fatal de red. Activando fallback...');
-            switchToFallback();
+            switchToFallback(playbackSession);
             return;
           }
 
@@ -448,22 +407,18 @@ export function PlayerPage({
               return;
             }
 
-            switchToFallback();
+            switchToFallback(playbackSession);
             return;
           }
 
-          switchToFallback();
+          switchToFallback(playbackSession);
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = streamUrl;
 
-        video.play().catch(() => {
-          console.warn('[TC Play] Autoplay bloqueado');
-        });
-
-        startPlaybackMonitor();
+        tryPlay();
       } else {
-        switchToFallback();
+        switchToFallback(playbackSession);
       }
     }
 
@@ -480,13 +435,10 @@ export function PlayerPage({
         player.attachMediaElement(video);
         player.load();
 
-        player.play().catch(() => {
-          console.warn('[TC Play] Autoplay TS bloqueado');
-        });
-
-        startPlaybackMonitor();
+        tryPlay();
 
         player.on(mpegts.Events.ERROR, () => {
+          if (!isCurrent()) return;
           console.warn('[TC Play] MPEG-TS error detectado');
 
           if (video.currentTime > 0) {
@@ -495,11 +447,10 @@ export function PlayerPage({
             );
             return;
           }
-          switchToFallback();
+          switchToFallback(playbackSession);
         });
       } else {
-        setErrorMessage('Este navegador no soporta este tipo de reproducción.');
-        hideSignalStatus();
+        switchToFallback(playbackSession);
       }
     }
 
@@ -515,109 +466,61 @@ export function PlayerPage({
     };
     
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamUrl, playerMode]);
+  }, [playback, isLoading]);
+
+  function leaveChannel() {
+    const playbackSession = playbackSessionRef.current;
+    playbackSessionRef.current = null;
+    closeSession(playbackSession);
+    destroyPlayers();
+    setPlayback(null);
+    setIsPlaying(false);
+    setErrorMessage('');
+    hideSignalStatus();
+  }
 
   function handleBack() {
-  try {
-    if (channel?.isAstra && channel?.id && playerMode === 'astra-proxy') {
-      stopAstraProxy(channel.id);
-    }
-
-    if (!channel?.isAstra && channel?.id) {
-      stopProxy(channel.id);
-    }
-  } catch {
-    console.warn('[TC Play] No se pudo cerrar el proxy');
+    leaveChannel();
+    onBack();
   }
-
-  onBack();
-}
 
   async function handleRetry() {
+    const previous = playbackSessionRef.current;
+    const replacement = newPlaybackSession();
+    playbackSessionRef.current = replacement;
+    destroyPlayers();
+    setPlayback(null);
+    setIsLoading(true);
+    setErrorMessage('');
+    hideSignalStatus();
+    userPausedRef.current = false;
+    autoplayBlockedRef.current = false;
+    mediaErrorCountRef.current = 0;
+    lastTimeRef.current = 0;
     try {
-      setIsLoading(true);
-      setErrorMessage('');
-      showSignalStatus('Reintentando canal...');
-
-      destroyPlayers();
-      setStreamUrl('');
-      setIsPlaying(false);
-      hideSignalStatus();
-
-      if (channel?.isAstra && playerMode === 'astra-proxy') {
-        await stopAstraProxy(channel.id);
-      }
-
-      if (!channel?.isAstra && channel?.id) {
-        await stopProxy(channel.id);
-      }
-
-      hasTriedTsFallbackRef.current = false;
-      mediaErrorCountRef.current = 0;
-      lastTimeRef.current = 0;
-
-      const playback = await loadUrl();
-
-      setPlayerMode(playback.mode);
-      setStreamUrl(playback.url);
+      await closeSession(previous);
+      if (playbackSessionRef.current !== replacement) return;
+      const next = await replacement.start();
+      if (next && playbackSessionRef.current === replacement && !replacement.closed) setPlayback(next);
     } catch (error) {
-      setErrorMessage(getFriendlyErrorMessage(error.message));
-      hideSignalStatus();
+      if (playbackSessionRef.current === replacement && !replacement.closed) {
+        setErrorMessage(getFriendlyErrorMessage(error.message));
+      }
     } finally {
-      setIsLoading(false);
+      if (playbackSessionRef.current === replacement && !replacement.closed) setIsLoading(false);
     }
   }
 
-  async function handlePreviousChannel() {
+  function handlePreviousChannel() {
     if (!onPreviousChannel) return;
-
-    try {
-      showSignalStatus('Cambiando canal...');
-
-      if (channel?.isAstra && channel?.id && playerMode === 'astra-proxy') {
-        await stopAstraProxy(channel.id);
-      }
-
-      if (!channel?.isAstra && channel?.id) {
-        await stopProxy(channel.id);
-      }
-
-      destroyPlayers();
-      onPreviousChannel();
-    } catch {
-      console.warn('[TC Play] No se pudo cambiar al canal anterior');
-      onPreviousChannel();
-    }
+    leaveChannel();
+    onPreviousChannel();
   }
 
-  async function handleNextChannel() {
+  function handleNextChannel() {
     if (!onNextChannel) return;
-
-    try {
-      showSignalStatus('Cambiando canal...');
-
-      if (channel?.isAstra && channel?.id && playerMode === 'astra-proxy') {
-        await stopAstraProxy(channel.id);
-      }
-
-      if (!channel?.isAstra && channel?.id) {
-        await stopProxy(channel.id);
-      }
-
-      destroyPlayers();
-
-      setStreamUrl('');
-      setPlayerMode('');
-      setIsPlaying(false);
-      setErrorMessage('');
-      hideSignalStatus();
-
-      onNextChannel();
-
-    } catch {
-      console.warn('[TC Play] No se pudo cambiar al siguiente canal');
-      onNextChannel();
-    }
+    leaveChannel();
+    onNextChannel();
   }
 
   async function handleFullscreen() {
@@ -644,14 +547,18 @@ export function PlayerPage({
 
     try {
       if (video.paused) {
+        userPausedRef.current = false;
+        autoplayBlockedRef.current = false;
         await video.play();
         setIsPlaying(true);
         return;
       }
 
+      userPausedRef.current = true;
       video.pause();
       setIsPlaying(false);
     } catch {
+      autoplayBlockedRef.current = true;
       console.warn('[TC Play] No se pudo alternar reproducción');
     }
   }

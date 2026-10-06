@@ -88,6 +88,7 @@ export async function getProxyStreamUrl(username, password, streamId) {
       username,
       password,
       stream_id: streamId,
+      device_profile: 'web',
     }),
   });
 
@@ -108,6 +109,7 @@ export async function stopProxy(streamId) {
     },
     body: JSON.stringify({
       stream_id: streamId,
+      device_profile: 'web',
     }),
   });
 
